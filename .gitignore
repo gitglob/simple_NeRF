@@ -1,0 +1,12 @@
+!**/.gitkeep 
+
+checkpoints/*
+videos
+data
+checkpoints
+papers
+
+wandb
+
+.venv
+**__pycache__
