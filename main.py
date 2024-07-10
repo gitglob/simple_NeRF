@@ -3,6 +3,7 @@ from math import ceil
 import wandb
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from src.data import SceneDataset
 from src.model import NeRF
@@ -10,7 +11,7 @@ from src.utils import normalize, tensor2image, save, load
 from src.utils import encode, sample_rays, volume_rendering, seed_everything
 
 
-def train(dataset, model, optimizer, config, save_path):
+def train(dataloader, model, optimizer, config, save_path):
     """Train the NeRF."""
     model.train()
 
@@ -26,11 +27,15 @@ def train(dataset, model, optimizer, config, save_path):
             param_group['lr'] = lr
 
         # An epoch is how many times we have parsed the entire dataset
-        epoch = ceil(i//len(dataset))
+        epoch = ceil(i//len(dataloader))
         
         # Parse 1 image
-        # [W*H, 3], [W*H, 3], [W*H, 3], [W*H, 2]
-        (img_target_rgb, img_rays_o, img_rays_d, img_bounds) = dataset[i]
+        # [1, W*H, 3], [1, W*H, 3], [1, W*H, 3], [1, W*H, 2]
+        img_target_rgb, img_rays_o, img_rays_d, img_bounds = next(iter(dataloader))
+        img_target_rgb = img_target_rgb.squeeze(0)  # [W*H, 3]
+        img_rays_o = img_rays_o.squeeze(0)          # [W*H, 3]
+        img_rays_d = img_rays_d.squeeze(0)          # [W*H, 3]
+        img_bounds = img_bounds.squeeze(0)          # [W*H, 2]
 
         # Render the rays of that image
         # [W*H, S, 3], [W*H, S], [W*H, S, 3]
@@ -105,6 +110,8 @@ def train(dataset, model, optimizer, config, save_path):
         if i % config.log_interval == 0:
             # Log the learning rate
             wandb.log({"Learning Rate": lr})
+            # Log the learning rate
+            wandb.log({"Epoch": epoch})
             # Log the loss
             wandb.log({"Loss": loss.item()})
 
@@ -136,7 +143,7 @@ def main():
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v0.0.0"
+    run_id = "v0.0.1"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
@@ -155,7 +162,7 @@ def main():
         "num_samples": 64,       # Number of samples across each ray
         "num_freqs_pos": 10,     # Number of position encoding frequencies
         "num_freqs_dir": 4,      # Number of direction encoding frequencies
-        "log_interval": 10       # Logging interval
+        "log_interval": 1        # Logging interval
     }, allow_val_change=True)
     config = wandb.config
     
@@ -170,6 +177,7 @@ def main():
     img_dir = os.path.join(dataset_path, "images")
     poses_path = os.path.join(dataset_path, "poses_bounds.npy")
     dataset = SceneDataset(images_dir=img_dir, poses_bounds_file=poses_path, transform=transform)
+    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
     # Initialize model and optimizer
     model = NeRF(config.num_freqs_pos, config.num_freqs_dir, device=device).cuda()
@@ -184,7 +192,7 @@ def main():
         print("No existing model...\n")
 
     # Train the model
-    train(dataset, model, optimizer, config, save_path)
+    train(dataloader, model, optimizer, config, save_path)
     
     # Finish wandb run
     wandb.finish()

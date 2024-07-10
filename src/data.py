@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+from torch.utils.data import Dataset
 from PIL import Image
 
 
@@ -26,7 +27,7 @@ Example Workflow
 """
 
 
-class SceneDataset():
+class SceneDataset(Dataset):
     def __init__(self, images_dir, poses_bounds_file, 
                  focal_length=24e-6, image_width=1536, 
                  sensor_width=9.8e-6,transform=None):
@@ -74,7 +75,6 @@ class SceneDataset():
                 rays_d (torch.Tensor): Ray directions [W*W, 3].
                 bounds (np.array): The near and far bounds for this image.
         """
-        idx = idx % len(self.image_files)
         # Load image
         img_path = self.image_files[idx]
         image = Image.open(img_path).convert('RGB')
