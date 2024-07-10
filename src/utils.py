@@ -1,8 +1,20 @@
 import numpy as np
 import random 
+import matplotlib.pyplot as plt
 import torch
-import torch.nn.functional as F
 
+
+def normalize(x: torch.Tensor):
+    """Normalizes the input tensor."""
+    min_vals, _ = x.min(dim=1, keepdim=True)
+    max_vals, _ = x.max(dim=1, keepdim=True)
+    x_norm = (x - min_vals) / (max_vals - min_vals + 1e-8)
+
+    return x_norm
+
+def show(img):
+    plt.imshow(img.reshape((128, 128, 3)).detach().cpu().numpy())
+    plt.savefig("image.png")
 
 def seed_everything(seed=42):
     """Seeds everything for reproducibility."""
@@ -36,7 +48,7 @@ def tensor2image(x, w, h):
     img = x.view(w, h, 3)
 
     # Ensure values are in range 0-1
-    img_norm = (img - img.min()) / (img.max() - img.min())
+    img_norm = (img - img.min()) / (img.max() - img.min() + 1e-8)
 
     # Convert tensors to numpy arrays and then to uint8
     img_int = (img_norm.detach().cpu().numpy() * 255).astype(np.uint8)

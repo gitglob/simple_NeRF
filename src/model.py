@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -27,18 +26,28 @@ class NeRF(nn.Module):
         self.input_dim_dir = 3 + num_freqs_dir * 2 * 3
         
         # MLP to process input points
-        # Coarse network layers
-        self.coarse_layers = nn.ModuleList([
+        # Coarse networks
+        self.coarse_network_1 = nn.Sequential(
             nn.Linear(self.input_dim_pos, 256),
+            nn.ReLU(),
             nn.Linear(256, 256),
+            nn.ReLU(),
             nn.Linear(256, 256),
+            nn.ReLU(),
             nn.Linear(256, 256),
+            nn.ReLU(),
             nn.Linear(256, 256),
+            nn.ReLU()
+        )
+        self.coarse_network_2 = nn.Sequential(
             nn.Linear(256 + self.input_dim_pos, 256),  # Skip connection
+            nn.ReLU(),
             nn.Linear(256, 256),
+            nn.ReLU(),
             nn.Linear(256, 256),
+            nn.ReLU(),
             nn.Linear(256, 256)
-        ])
+        )
         
         # Output layers for sigma and intermediate feature
         self.sigma_output = nn.Linear(256, 1)
@@ -58,10 +67,11 @@ class NeRF(nn.Module):
         """
         Initialize the weights of the NeRF model using Xavier initialization.
         """
-        for layer in self.coarse_layers:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
-                nn.init.zeros_(layer.bias)
+        for net in [self.coarse_network_1, self.coarse_network_2, self.fine_network]:
+            for layer in net:
+                if isinstance(layer, nn.Linear):
+                    nn.init.xavier_uniform_(layer.weight)
+                    nn.init.zeros_(layer.bias)
         
         nn.init.xavier_uniform_(self.sigma_output.weight)
         nn.init.zeros_(self.sigma_output.bias)
@@ -69,11 +79,6 @@ class NeRF(nn.Module):
         nn.init.xavier_uniform_(self.feature_output.weight)
         nn.init.zeros_(self.feature_output.bias)
         
-        for layer in self.fine_network:
-            if isinstance(layer, nn.Linear):
-                nn.init.xavier_uniform_(layer.weight)
-                nn.init.zeros_(layer.bias)
-
     def forward(self, x, d):
         """
         Forward pass through the NeRF model.
@@ -86,14 +91,14 @@ class NeRF(nn.Module):
             torch.Tensor: Output tensor of shape (batch_size, 4) containing RGB color and volume density.
         """
         # Coarse network
-        h = x
-        for i, layer in enumerate(self.coarse_layers):
-            if i == 5:  # Skip connection
-                h = torch.cat([h, x], dim=-1)
-
-            h = F.relu(layer(h))
+        h = self.coarse_network_1(x)
+        skip_x = torch.cat([h, x], dim=-1)
+        h = self.coarse_network_2(skip_x)
         
-        sigma = self.sigma_output(h)
+        # Extract volume density
+        sigma = F.relu(self.sigma_output(h))
+
+        # Extract the features that will be used for the color prediction
         feature = self.feature_output(h)
         
         # Concatenate feature with directional encoding
@@ -103,3 +108,31 @@ class NeRF(nn.Module):
         rgb = self.fine_network(h)
         
         return rgb, sigma
+
+    def print_status(self):
+        # Collect all gradients
+        total_gradients = []
+        for param in self.parameters():
+            if param.grad is not None:
+                total_gradients.append(param.grad.view(-1))
+        
+        if total_gradients:
+            all_gradients = torch.cat(total_gradients)
+            mean_gradient = all_gradients.mean().item()
+            std_gradient = all_gradients.std().item()
+            min_gradient = all_gradients.min().item()
+            max_gradient = all_gradients.max().item()
+            print(f"Gradients - Mean: {mean_gradient}, Std: {std_gradient}, Min: {min_gradient}, Max: {max_gradient}")
+        
+        # Collect all weights
+        total_weights = []
+        for param in self.parameters():
+            total_weights.append(param.view(-1))
+        
+        if total_weights:
+            all_weights = torch.cat(total_weights)
+            mean_weight = all_weights.mean().item()
+            std_weight = all_weights.std().item()
+            min_weight = all_weights.min().item()
+            max_weight = all_weights.max().item()
+            print(f"Weights - Mean: {mean_weight}, Std: {std_weight}, Min: {min_weight}, Max: {max_weight}")
