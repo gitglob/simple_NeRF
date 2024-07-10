@@ -50,8 +50,11 @@ class NeRF(nn.Module):
         )
         
         # Output layers for sigma and intermediate feature
-        self.sigma_output = nn.Linear(256, 1)
-        self.feature_output = nn.Linear(256, 256)
+        self.sigma_network = nn.Sequential(
+            nn.Linear(256, 1),
+            nn.ReLU()
+        )
+        self.feature_head = nn.Linear(256, 256)
         
         # Fine network layers
         self.fine_network = nn.Sequential(
@@ -67,17 +70,14 @@ class NeRF(nn.Module):
         """
         Initialize the weights of the NeRF model using Xavier initialization.
         """
-        for net in [self.coarse_network_1, self.coarse_network_2, self.fine_network]:
+        for net in [self.coarse_network_1, self.coarse_network_2, self.sigma_network, self.fine_network]:
             for layer in net:
                 if isinstance(layer, nn.Linear):
                     nn.init.xavier_uniform_(layer.weight)
                     nn.init.zeros_(layer.bias)
         
-        nn.init.xavier_uniform_(self.sigma_output.weight)
-        nn.init.zeros_(self.sigma_output.bias)
-        
-        nn.init.xavier_uniform_(self.feature_output.weight)
-        nn.init.zeros_(self.feature_output.bias)
+        nn.init.xavier_uniform_(self.feature_head.weight)
+        nn.init.zeros_(self.feature_head.bias)
         
     def forward(self, x, d):
         """
@@ -96,10 +96,10 @@ class NeRF(nn.Module):
         h = self.coarse_network_2(skip_x)
         
         # Extract volume density
-        sigma = F.relu(self.sigma_output(h))
+        sigma = self.sigma_network(h)
 
         # Extract the features that will be used for the color prediction
-        feature = self.feature_output(h)
+        feature = self.feature_head(h)
         
         # Concatenate feature with directional encoding
         h = torch.cat([feature, d], dim=-1)

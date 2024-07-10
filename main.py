@@ -47,8 +47,8 @@ def train(dataset, model, optimizer, config, save_path):
         view_dirs = encode(view_dirs, model.num_freqs_dir)  # [W*H*S, Dd] (Dd = 3 + 2*3*Fd)
 
         # Normalize points and view directions
-        pts = normalize(pts)                # [W*H*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
-        view_dirs = normalize(view_dirs)    # [W*H*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
+        # pts = normalize(pts)                # [W*H*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
+        # view_dirs = normalize(view_dirs)    # [W*H*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
         
         # Initialize variables to accumulate results
         rgb_map_batches = []
@@ -97,9 +97,9 @@ def train(dataset, model, optimizer, config, save_path):
             acc_map_batches.append(acc_map)
 
         # Concatenate all batches to reconstruct the full image
-        rgb_map = torch.cat(rgb_map_batches, dim=0).view(WH, 3)
-        depth_map = torch.cat(depth_map_batches, dim=0).view(WH)
-        acc_map = torch.cat(acc_map_batches, dim=0).view(WH)
+        rgb_map = torch.cat(rgb_map_batches, dim=0).view(WH, 3)   # [W*H, 3]
+        depth_map = torch.cat(depth_map_batches, dim=0).view(WH)  # [W*H]
+        acc_map = torch.cat(acc_map_batches, dim=0).view(WH)      # [W*H]
     
         # Log an image every `log_interval` iterations
         if i % config.log_interval == 0:
