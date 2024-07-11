@@ -63,6 +63,13 @@ def encode(x, encoding_dim):
             encoding.append(fn(2.0 ** i * x))
     return torch.cat(encoding, dim=-1).float()
 
+def batch_encode(x, encoding_dim):
+    """Encodes a batch of tensors to a higher dimension using sines and cosines."""
+    batch_encoding = []
+    for batch in x:
+        batch_encoding.append(encode(batch, encoding_dim))
+    return torch.stack(batch_encoding)
+    
 def sample_rays(rays_o, rays_d, bounds, N_samples=64):
     """
     Renders rays by sampling points along each ray.
@@ -107,7 +114,7 @@ def sample_rays(rays_o, rays_d, bounds, N_samples=64):
     view_dirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)  # Normalize ray directions
     view_dirs = view_dirs.unsqueeze(1).expand(R, S, 3)      # [R, S, 3]
 
-    return pts, z_vals, view_dirs
+    return pts, view_dirs, z_vals
 
 def volume_rendering(rgb, sigma, z_vals):
     """

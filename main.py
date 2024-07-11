@@ -7,125 +7,148 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from src.data import SceneDataset
 from src.model import NeRF
-from src.utils import normalize, tensor2image, save, load
-from src.utils import encode, sample_rays, volume_rendering, seed_everything
+from src.utils import tensor2image, save, load
+from src.utils import encode, batch_encode, volume_rendering, seed_everything
 
 
-def train(dataloader, model, optimizer, config, save_path):
+def validate(val_dataloader, model, criterion, config):
+    with torch.no_grad():
+        # [1, W*H, 3], [1, W*H, S, 3], [1, W*H, S, 3], [1, W*H, S]
+        target_rgb, pts, view_dirs, z_vals = next(iter(val_dataloader))
+        target_rgb = target_rgb.squeeze(0)   # [W*H, 3]
+        pts = pts.squeeze(0)                 # [W*H, S, 3]
+        view_dirs = view_dirs.squeeze(0)     # [W*H, S, 3]
+        z_vals = z_vals.squeeze(0)           # [W*H, S]
+        pts = batch_encode(pts, model.num_freqs_pos)             # [W*H, S, Dp]
+        view_dirs = batch_encode(view_dirs, model.num_freqs_dir) # [W*H, S, Dd]
+
+        # Split validation forward pass to batches so that it can fit to CUDA memory
+        B = config.batch_size
+        N, S = z_vals.shape
+        rendered_images = []
+        target_images = []
+        for start in range(0, N, B):
+            # Get the batch tensors
+            end = start + B
+            pts_batch = pts[start:end]               # [B, S, Dp]
+            view_dirs_batch = view_dirs[start:end]   # [B, S, Dd]
+            z_vals_batch = z_vals[start:end]         # [B, S]
+            target_rgb_batch = target_rgb[start:end] # [B, 3]
+
+            # Merge Batch and Sample dimensions
+            pts_batch = pts_batch.view(B*S, -1)              # [B*S, Dp]
+            view_dirs_batch = view_dirs_batch.view(B*S, -1)  # [B*S, Dd]
+
+            # [B*S, 3], [B*S, 1]
+            rgb_batch, sigma_batch = model(pts_batch, view_dirs_batch)
+            
+            # Isolate the sampling dimension again, to perform volume rendering
+            rgb_batch = rgb_batch.view(B, S, 3)               # [B, S, 3]
+            sigma_batch = sigma_batch.squeeze(-1).view(B, S)  # [B, S]
+
+            # [B, 3], [B, 3], [B, 3]
+            rgb_map_batch, depth_map_batch, acc_map_batch = volume_rendering(rgb_batch, sigma_batch, z_vals_batch)
+            
+            # Concatenate validation batches
+            rendered_images.append(rgb_map_batch)
+            target_images.append(target_rgb_batch)
+
+        rendered_image = torch.cat(rendered_images, dim=0)  # [W*H, 3]
+        target_image = torch.cat(target_images, dim=0)      # [W*H, 3]
+        
+        # Calculate the validation loss
+        loss = criterion(rendered_image, target_image)
+
+        # Convert tensors to images
+        rendered_image_np = tensor2image(rendered_image, config.image_w, config.image_h)
+        target_image_np = tensor2image(target_image, config.image_w, config.image_h)
+
+        return loss, rendered_image_np, target_image_np
+
+def train(dataset, train_dataloader, val_dataloader, 
+          model, optimizer, config, save_path):
     """Train the NeRF."""
-    model.train()
-
     # Define the loss function
     criterion = nn.MSELoss()
     
     # Iterate over the epochs
     B = config.batch_size
     for i in range(config.num_iter):
+        dataset.set_mode("train")
+        model.train()
+
         # Exponentially decaying learning rate
         lr = config.lr_final + (config.lr - config.lr_final) * (1 - i / config.num_iter)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-        # An epoch is how many times we have parsed the entire dataset
-        epoch = ceil(i//len(dataloader))
-        
-        # Parse 1 image
-        # [1, W*H, 3], [1, W*H, 3], [1, W*H, 3], [1, W*H, 2]
-        img_target_rgb, img_rays_o, img_rays_d, img_bounds = next(iter(dataloader))
-        img_target_rgb = img_target_rgb.squeeze(0)  # [W*H, 3]
-        img_rays_o = img_rays_o.squeeze(0)          # [W*H, 3]
-        img_rays_d = img_rays_d.squeeze(0)          # [W*H, 3]
-        img_bounds = img_bounds.squeeze(0)          # [W*H, 2]
-
-        # Render the rays of that image
-        # [W*H, S, 3], [W*H, S], [W*H, S, 3]
-        img_pts, img_z_vals, img_view_dirs = sample_rays(img_rays_o, img_rays_d, img_bounds, N_samples=config.num_samples)
-        WH, S, C = img_pts.shape # Number of rays / samples / channels
-
-        # Merge sampling with image dimensions to create individual rays
-        z_vals = img_z_vals.flatten()                  # [W*H*S]
-        pts = img_pts.reshape(WH*S, C)                 # [W*H*S, 3]
-        view_dirs = img_view_dirs.reshape(WH*S, C)     # [W*H*S, 3]
+        # Parse B random rays sampled at S points
+        # [B, 3], [B, S, 3], [B, S, 3], [B, S]
+        target_rgb, pts, view_dirs, z_vals = next(iter(train_dataloader))
+        B, S, C = pts.shape
 
         # Apply positional encoding
-        pts = encode(pts, model.num_freqs_pos)              # [W*H*S, Dp] (Dp = 3 + 2*3*Fp)
-        view_dirs = encode(view_dirs, model.num_freqs_dir)  # [W*H*S, Dd] (Dd = 3 + 2*3*Fd)
+        pts = batch_encode(pts, model.num_freqs_pos)              # [B, S, Dp] (Dp = 3 + 2*3*Fp)
+        view_dirs = batch_encode(view_dirs, model.num_freqs_dir)  # [B, S, Dd] (Dd = 3 + 2*3*Fd)
+
+        # Merge Batch and Sample dimensions
+        pts = pts.view(B*S, -1)              # [B*S, Dp]
+        view_dirs = view_dirs.view(B*S, -1)  # [B*S, Dd]
 
         # Normalize points and view directions
-        # pts = normalize(pts)                # [W*H*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
-        # view_dirs = normalize(view_dirs)    # [W*H*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
+        # pts = normalize(pts)               # [B*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
+        # view_dirs = normalize(view_dirs)   # [B*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
+
+        # Set optimizer gradient to 0
+        optimizer.zero_grad()
+
+        # Query the model with the sampled points
+        # [B*S, 3], [B*S, 1]
+        rgb, sigma = model(pts, view_dirs)
+
+        # Isolate the sampling dimension again, to perform volume rendering
+        rgb = rgb.view(B, S, 3)               # [B, S, 3]
+        sigma = sigma.squeeze(-1).view(B, S)  # [B, S]
         
-        # Initialize variables to accumulate results
-        rgb_map_batches = []
-        depth_map_batches = []
-        acc_map_batches = []
+        # Convert raw model outputs to RGB, depth, and accumulated opacity maps
+        # [B, 3], [B], [B]
+        rgb_map, depth_map, acc_map = volume_rendering(rgb, sigma, z_vals)
+
+        # Calculate loss for this batch
+        train_loss = criterion(rgb_map, target_rgb)
+
+        # Backpropagate to compute the gradients
+        train_loss.backward()
+
+        # Gradient clipping
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
         
-        # Process rays in batches
-        for b in range(0, WH * S, B):
-            # Get the current batch
-            pts_batch = pts[b : b + B]                 # [B, Dp]
-            view_dirs_batch = view_dirs[b : b + B]     # [B, Dd]
-            z_vals_batch = z_vals[b : b + B]           # [B]
-
-            # Set optimizer gradient to 0
-            optimizer.zero_grad()
-
-            # Query the model with the sampled points
-            # [B, 3], [B, 1]
-            rgb_batch, sigma_batch = model(pts_batch, view_dirs_batch)
-
-            # Isolate the sampling dimension again, to perform volume rendering
-            rgb_batch = rgb_batch.view(-1, S, 3)        # [-1, S, 3]
-            sigma_batch = sigma_batch.view(-1, S, 1)    # [-1, S, 1]
-            z_vals_batch = z_vals_batch.view(-1, S)     # [-1, S]
-            
-            # Convert raw model outputs to RGB, depth, and accumulated opacity maps
-            # [B // S, 3], [B // S], [B // S]
-            rgb_map, depth_map, acc_map = volume_rendering(rgb_batch, sigma_batch.squeeze(-1), z_vals_batch)
-
-            # Calculate loss for this batch
-            target_rgb_batch = img_target_rgb[b//S : b//S + B//S]   # [B//S, 3]
-            loss = criterion(rgb_map, target_rgb_batch)
-
-            # Backpropagate to compute the gradients
-            loss.backward()
-
-            # Gradient clipping
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
-            
-            # Update the model parameters using the optimizer
-            optimizer.step()
-            
-            # Accumulate results
-            rgb_map_batches.append(rgb_map)
-            depth_map_batches.append(depth_map)
-            acc_map_batches.append(acc_map)
-
-        # Concatenate all batches to reconstruct the full image
-        rgb_map = torch.cat(rgb_map_batches, dim=0).view(WH, 3)   # [W*H, 3]
-        depth_map = torch.cat(depth_map_batches, dim=0).view(WH)  # [W*H]
-        acc_map = torch.cat(acc_map_batches, dim=0).view(WH)      # [W*H]
+        # Update the model parameters using the optimizer
+        optimizer.step()
     
         # Log an image every `log_interval` iterations
         if i % config.log_interval == 0:
-            # Log the learning rate
-            wandb.log({"Learning Rate": lr})
-            # Log the learning rate
-            wandb.log({"Epoch": epoch})
-            # Log the loss
-            wandb.log({"Loss": loss.item()})
+            # Run and log validation
+            dataset.set_mode("val")
+            model.eval()
+            val_loss, rendered_img, target_img = validate(val_dataloader, model, criterion, config)
 
+            # Log training and validation metrics
+            wandb.log({"Learning Rate": lr})
+            wandb.log({"Train Loss": train_loss.item()})
+            wandb.log({"Validation Loss": val_loss.item()})
             # Log target and rendered image
-            with torch.no_grad():
-                rendered_image = tensor2image(rgb_map, config.image_w, config.image_h)
-                target_image = tensor2image(img_target_rgb, config.image_w, config.image_h)
             wandb.log({
-                "Rendered Image": wandb.Image(rendered_image, caption=f"Rendered Image - Epoch {epoch}, Iter {i}"),
-                "Target Image": wandb.Image(target_image, caption=f"Target Image - Epoch {epoch}, Iter {i}")
+                "Rendered Image": wandb.Image(rendered_img, 
+                        caption=f"Rendered Image - Iter {i}"),
+                "Target Image": wandb.Image(target_img, 
+                        caption=f"Target Image - Iter {i}")
             })
 
             # Print the loss and save the model checkpoint
-            print(f"Iter {i}, Epoch {epoch}, Loss: {loss.item()}")
+            print(f"\t\tIter {i}",
+                  f"\nTrain Loss: {train_loss.item()}",
+                  f"\nValidation Loss: {val_loss.item()}")
             save(model, optimizer, save_path)
 
 def main():
@@ -143,7 +166,7 @@ def main():
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v0.0.1"
+    run_id = "v0.0.2"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
@@ -176,8 +199,14 @@ def main():
     ])
     img_dir = os.path.join(dataset_path, "images")
     poses_path = os.path.join(dataset_path, "poses_bounds.npy")
-    dataset = SceneDataset(images_dir=img_dir, poses_bounds_file=poses_path, transform=transform)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
+    dataset = SceneDataset(images_dir=img_dir, 
+                           poses_bounds_file=poses_path, 
+                           S=config.num_samples, 
+                           W=config.image_w,
+                           H=config.image_h,
+                           transform=transform)
+    train_dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
+    val_dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
     # Initialize model and optimizer
     model = NeRF(config.num_freqs_pos, config.num_freqs_dir, device=device).cuda()
@@ -192,7 +221,7 @@ def main():
         print("No existing model...\n")
 
     # Train the model
-    train(dataloader, model, optimizer, config, save_path)
+    train(dataset, train_dataloader, val_dataloader, model, optimizer, config, save_path)
     
     # Finish wandb run
     wandb.finish()
