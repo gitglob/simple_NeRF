@@ -131,7 +131,6 @@ def volume_rendering(rgb, sigma, z_vals):
         opacity_map (tensor): The rendered opacity map with shape (batch_size).
     """
     batch_size = rgb.shape[0]
-    num_samples = rgb.shape[1]
         
     # Calculate distances between adjacent z_vals
     dists = z_vals[..., 1:] - z_vals[..., :-1]

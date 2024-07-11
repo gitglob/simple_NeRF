@@ -35,7 +35,7 @@ class SceneDataset(Dataset):
                  image_width=1536, 
                  sensor_width=9.8e-6,
                  transform=None,
-                 mode=None):
+                 mode="train"):
         """
         Args:
             images_dir (str): Directory with all the images.
@@ -69,7 +69,9 @@ class SceneDataset(Dataset):
         bounds = poses_bounds[:, -2:]                    # [N, 2]
 
         # Get list of image files
-        img_files = sorted([os.path.join(images_dir, f) for f in os.listdir(images_dir) if f.endswith('.JPG')])
+        img_files = sorted([os.path.join(images_dir, f) 
+                            for f in os.listdir(images_dir) 
+                            if f.endswith('.JPG') or f.endswith('.jpg')])
         N = len(img_files)
         self.N = N
 
@@ -102,7 +104,12 @@ class SceneDataset(Dataset):
         self.mode = mode
 
     def __len__(self):
-        return self.N
+        if self.mode == "train":
+            L = self.N * self.W * self.H
+        else:
+            L = self.N
+
+        return L
 
     def __getitem__(self, idx):
         """

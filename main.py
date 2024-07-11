@@ -80,20 +80,16 @@ def train(dataset, train_dataloader, val_dataloader,
     criterion = nn.MSELoss()
     
     # Iterate over the epochs
-    B = config.batch_size
-    for i in range(config.num_iter):
-        dataset.set_mode("train")
-        model.train()
+    for i, batch in enumerate(train_dataloader):
+        # Parse B random rays sampled at S points
+        # [B, 3], [B, S, 3], [B, S, 3], [B, S]
+        target_rgb, pts, view_dirs, z_vals = batch
+        B, S, C = pts.shape
 
         # Exponentially decaying learning rate
         lr = config.lr_final + (config.lr - config.lr_final) * (1 - i / config.num_iter)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-
-        # Parse B random rays sampled at S points
-        # [B, 3], [B, S, 3], [B, S, 3], [B, S]
-        target_rgb, pts, view_dirs, z_vals = next(iter(train_dataloader))
-        B, S, C = pts.shape
 
         # Apply positional encoding
         pts = batch_encode(pts, model.num_freqs_pos)              # [B, S, Dp] (Dp = 3 + 2*3*Fp)
@@ -136,9 +132,11 @@ def train(dataset, train_dataloader, val_dataloader,
     
         # Log an image every `log_interval` iterations
         if i % config.log_interval == 0:
-            # Run and log validation
+            # Set training mode
             dataset.set_mode("val")
             model.eval()
+
+            # Run and log validation
             val_loss, rendered_img, target_img = validate(val_dataloader, model, criterion, config)
 
             # Log training and validation metrics
@@ -159,6 +157,14 @@ def train(dataset, train_dataloader, val_dataloader,
                   f"\nValidation Loss: {val_loss.item()}")
             save(model, optimizer, save_path)
 
+            # Return to training mode
+            dataset.set_mode("train")
+            model.train()
+
+        if i == config.num_iter:
+            print("Iterations finished! Exiting loop...")
+            break
+
 def main():
     # Check for CUDA availability
     if not torch.cuda.is_available():
@@ -167,14 +173,14 @@ def main():
     device = torch.device("cuda")
     
     # Dataset path
-    scene = "object"
-    dataset_path = os.path.join(os.path.curdir, "data", "custom", scene)
+    scene = "trex"
+    dataset_path = os.path.join(os.path.curdir, "data", "NeRF", "nerf_llff_data", scene)
 
     # Initialize wandb
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v0.0.2"
+    run_id = "v0.0.4"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
@@ -185,7 +191,7 @@ def main():
         "num_iter": 100000,      # Number of epochs
         "lr": 5e-4,              # Learning rate start
         "lr_final": 5e-5,        # Learning rate finish
-        "batch_size": 4096,      # Batch size (number of rays per iteration)
+        "batch_size": 1024,      # Batch size (number of rays per iteration)
         "N_c": 64,               # Coarse sampling
         "N_f": 128,              # Fine sampling
         "image_w": 128,          # Image weight dim
@@ -229,7 +235,8 @@ def main():
         print("No existing model...\n")
 
     # Train the model
-    train(dataset, train_dataloader, val_dataloader, model, optimizer, config, save_path)
+    train(dataset, train_dataloader, val_dataloader, 
+          model, optimizer, config, save_path)
     
     # Finish wandb run
     wandb.finish()
