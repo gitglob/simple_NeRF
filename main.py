@@ -1,5 +1,4 @@
 import os
-from math import ceil
 import wandb
 import torch
 import torch.nn as nn
@@ -8,10 +7,19 @@ from torchvision import transforms
 from src.data import SceneDataset
 from src.model import NeRF
 from src.utils import tensor2image, save, load
-from src.utils import encode, batch_encode, volume_rendering, seed_everything
+from src.utils import batch_encode, volume_rendering, seed_everything
 
 
 def validate(val_dataloader, model, criterion, config):
+    """
+    Validate the NeRF.
+    
+    The idea here is that you run validation on all the rays of 1 image,
+    but we still split them in batches to fit in my GPU memory.
+    This is because during training we only get B rays from random images,
+    but for validation we want ALL the rays from 1 random image, which
+    results in W*H rays (much much bigger than B).
+    """
     with torch.no_grad():
         # [1, W*H, 3], [1, W*H, S, 3], [1, W*H, S, 3], [1, W*H, S]
         target_rgb, pts, view_dirs, z_vals = next(iter(val_dataloader))

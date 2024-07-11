@@ -10,4 +10,10 @@ To run SFM on the collected images run:
 python scripts/imgs2poses.py data/custom/object
 ```
 
+# NeRF
+To train the NeRF model run:
+```
+python main.py
+```
+
 # Results
