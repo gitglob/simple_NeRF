@@ -5,6 +5,7 @@ import wandb
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 from torchvision import transforms
 from src.data import SceneDataset
 from src.model import NeRF
@@ -12,7 +13,7 @@ from src.utils import tensor2image, save, load
 from src.utils import batch_encode, volume_rendering
 
 
-def validate(dataset, model, criterion, config):
+def validate(dataset, model, config):
     """
     Validate the NeRF.
     
@@ -21,21 +22,22 @@ def validate(dataset, model, criterion, config):
     This is because during training we only get B rays from random images,
     but for validation we want ALL the rays from 1 random image, which
     results in W*H rays (much much bigger than B).
-    """
+    """    
     with torch.no_grad():
         # Get a random image
         random_idx = random.randint(0, len(dataset) - 1)
         
         # [W*H, 3], [W*H, S, 3], [W*H, S, 3], [W*H, S]
         target_rgb, pts, view_dirs, z_vals = dataset[random_idx]
+        target_rgb, pts, view_dirs, z_vals = target_rgb.cuda(), pts.cuda(), view_dirs.cuda(), z_vals.cuda()
         pts = batch_encode(pts, model.num_freqs_pos)             # [W*H, S, Dp]
         view_dirs = batch_encode(view_dirs, model.num_freqs_dir) # [W*H, S, Dd]
 
         # Split validation forward pass to batches so that it can fit to CUDA memory
         B = config.batch_size
         N, S = z_vals.shape
-        rendered_images = []
-        target_images = []
+        rendered_image = torch.zeros((N, 3))  # [W*H, 3]
+        target_image = torch.zeros((N, 3))    # [W*H, 3]
         for start in range(0, N, B):
             # Get the batch tensors
             end = start + B
@@ -58,15 +60,12 @@ def validate(dataset, model, criterion, config):
             # [B, 3], [B, 3], [B, 3]
             rgb_map_batch, depth_map_batch, acc_map_batch = volume_rendering(rgb_batch, sigma_batch, z_vals_batch)
             
-            # Concatenate validation batches
-            rendered_images.append(rgb_map_batch)
-            target_images.append(target_rgb_batch)
-
-        rendered_image = torch.cat(rendered_images, dim=0)  # [W*H, 3]
-        target_image = torch.cat(target_images, dim=0)      # [W*H, 3]
+            # Insert batch results into preallocated tensors
+            rendered_image[start:end] = rgb_map_batch  # [W*H, 3]
+            target_image[start:end] = target_rgb_batch # [W*H, 3]
         
         # Calculate the validation loss
-        loss = criterion(rendered_image, target_image)
+        loss = F.mse_loss(rendered_image, target_image).item()
 
         # Convert tensors to images
         rendered_image_np = tensor2image(rendered_image, config.image_w, config.image_h)
@@ -80,11 +79,16 @@ def train(dataset, train_dataloader,
     # Define the loss function
     criterion = nn.MSELoss()
     
+    # Return to training mode
+    dataset.set_mode("train")
+    model.train()
+    
     # Iterate over the epochs
     for i, batch in enumerate(itertools.cycle(train_dataloader)):
         # Parse B random rays sampled at S points
         # [B, 3], [B, S, 3], [B, S, 3], [B, S]
         target_rgb, pts, view_dirs, z_vals = batch
+        target_rgb, pts, view_dirs, z_vals = target_rgb.cuda(), pts.cuda(), view_dirs.cuda(), z_vals.cuda()
         B, S, C = pts.shape
 
         # Exponentially decaying learning rate
@@ -136,14 +140,14 @@ def train(dataset, train_dataloader,
             # Set training mode
             dataset.set_mode("val")
             model.eval()
-
+            
             # Run and log validation
-            val_loss, rendered_img, target_img = validate(dataset, model, criterion, config)
+            val_loss, rendered_img, target_img = validate(dataset, model, config)
 
             # Log training and validation metrics
             wandb.log({"Learning Rate": lr})
             wandb.log({"Train Loss": train_loss.item()})
-            wandb.log({"Validation Loss": val_loss.item()})
+            wandb.log({"Validation Loss": val_loss})
             # Log target and rendered image
             wandb.log({
                 "Rendered Image": wandb.Image(rendered_img, 
@@ -153,13 +157,12 @@ def train(dataset, train_dataloader,
             })
 
             # Print the loss and save the model checkpoint
-            print(f"\t\tIter {i}",
-                  f"\nTrain Loss: {train_loss.item()}",
-                  f"\nValidation Loss: {val_loss.item()}")
+            print(f"\n\t\tIter {i}")
+            print(f"Train Loss: {train_loss.item()}")
+            print(f"Validation Loss: {val_loss}")
             save(model, optimizer, save_path)
 
             # Return to training mode
-            torch.cuda.empty_cache()
             dataset.set_mode("train")
             model.train()
 
@@ -219,7 +222,6 @@ def main():
                            H=config.image_h,
                            transform=transform)
     train_dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
-    val_dataloader = DataLoader(dataset, batch_size=1, shuffle=True)
 
     # Initialize model and optimizer
     model = NeRF(config.num_freqs_pos, config.num_freqs_dir, device=device).cuda()

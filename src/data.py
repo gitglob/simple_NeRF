@@ -102,6 +102,20 @@ class SceneDataset(Dataset):
  
     def set_mode(self, mode):
         self.mode = mode
+        N, W, H, S = self.N, self.W, self.H, self.S
+
+        if mode == "train":
+            # Reshape the tensors to be able to get batches of random rays from random images
+            self.imgs = self.imgs.view(N*W*H, 3)              # [N*W*H, 3]
+            self.pts = self.pts.view(N*W*H, S, 3)             # [N*W*H, S, 3]
+            self.view_dirs = self.view_dirs.view(N*W*H, S, 3) # [N*W*H, S, 3]
+            self.z_vals = self.z_vals.view(N*W*H, S)          # [N*W*H, S]
+        else:
+            # Reshape the tensors to get all the rays from 1 image
+            self.imgs = self.imgs.view(N, W*H, 3)              # [N, W*H, 3]
+            self.pts = self.pts.view(N, W*H, S, 3)             # [N, W*H, S, 3]
+            self.view_dirs = self.view_dirs.view(N, W*H, S, 3) # [N, W*H, S, 3]
+            self.z_vals = self.z_vals.view(N, W*H, S)          # [N, W*H, S]
 
     def __len__(self):
         if self.mode == "train":
@@ -123,25 +137,11 @@ class SceneDataset(Dataset):
                 rays_d (torch.Tensor): Ray directions [W*W, 3].
                 bounds (np.array): The near and far bounds for this image.
         """
-        N, W, H, S = self.N, self.W, self.H, self.S
 
-        if self.mode == "train":
-            # Reshape the tensors to be able to get batches of random rays from random images
-            self.imgs = self.imgs.view(N*W*H, 3)              # [N*W*H, 3]
-            self.pts = self.pts.view(N*W*H, S, 3)             # [N*W*H, S, 3]
-            self.view_dirs = self.view_dirs.view(N*W*H, S, 3) # [N*W*H, S, 3]
-            self.z_vals = self.z_vals.view(N*W*H, S)          # [N*W*H, S]
-        else:
-            # Reshape the tensors to get all the rays from 1 image
-            self.imgs = self.imgs.view(N, W*H, 3)              # [N, W*H, 3]
-            self.pts = self.pts.view(N, W*H, S, 3)             # [N, W*H, S, 3]
-            self.view_dirs = self.view_dirs.view(N, W*H, S, 3) # [N, W*H, S, 3]
-            self.z_vals = self.z_vals.view(N, W*H, S)          # [N, W*H, S]
-
-        img = self.imgs[idx].cuda()             # [3]    | [W*H, 3]
-        pts = self.pts[idx].cuda()              # [S, 3] | [W*H, S, 3]
-        view_dirs = self.view_dirs[idx].cuda()  # [S, 3] | [W*H, S, 3]
-        z_vals = self.z_vals[idx].cuda()        # [S]    | [W*H, S]
+        img = self.imgs[idx]            # [3]    | [W*H, 3]
+        pts = self.pts[idx]             # [S, 3] | [W*H, S, 3]
+        view_dirs = self.view_dirs[idx] # [S, 3] | [W*H, S, 3]
+        z_vals = self.z_vals[idx]       # [S]    | [W*H, S]
         
         return img, pts, view_dirs, z_vals
 
