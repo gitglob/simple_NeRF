@@ -159,6 +159,7 @@ def train(dataset, train_dataloader,
             save(model, optimizer, save_path)
 
             # Return to training mode
+            torch.cuda.empty_cache()
             dataset.set_mode("train")
             model.train()
 
@@ -200,7 +201,7 @@ def main():
         "num_samples": 64,       # Number of samples across each ray
         "num_freqs_pos": 10,     # Number of position encoding frequencies
         "num_freqs_dir": 4,      # Number of direction encoding frequencies
-        "log_interval": 1        # Logging interval
+        "log_interval": 25       # Logging interval
     }, allow_val_change=True)
     config = wandb.config
     
