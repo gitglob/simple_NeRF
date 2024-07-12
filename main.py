@@ -1,4 +1,6 @@
 import os
+import itertools
+import random
 import wandb
 import torch
 import torch.nn as nn
@@ -7,10 +9,10 @@ from torchvision import transforms
 from src.data import SceneDataset
 from src.model import NeRF
 from src.utils import tensor2image, save, load
-from src.utils import batch_encode, volume_rendering, seed_everything
+from src.utils import batch_encode, volume_rendering
 
 
-def validate(val_dataloader, model, criterion, config):
+def validate(dataset, model, criterion, config):
     """
     Validate the NeRF.
     
@@ -21,12 +23,11 @@ def validate(val_dataloader, model, criterion, config):
     results in W*H rays (much much bigger than B).
     """
     with torch.no_grad():
-        # [1, W*H, 3], [1, W*H, S, 3], [1, W*H, S, 3], [1, W*H, S]
-        target_rgb, pts, view_dirs, z_vals = next(iter(val_dataloader))
-        target_rgb = target_rgb.squeeze(0)   # [W*H, 3]
-        pts = pts.squeeze(0)                 # [W*H, S, 3]
-        view_dirs = view_dirs.squeeze(0)     # [W*H, S, 3]
-        z_vals = z_vals.squeeze(0)           # [W*H, S]
+        # Get a random image
+        random_idx = random.randint(0, len(dataset) - 1)
+        
+        # [W*H, 3], [W*H, S, 3], [W*H, S, 3], [W*H, S]
+        target_rgb, pts, view_dirs, z_vals = dataset[random_idx]
         pts = batch_encode(pts, model.num_freqs_pos)             # [W*H, S, Dp]
         view_dirs = batch_encode(view_dirs, model.num_freqs_dir) # [W*H, S, Dd]
 
@@ -73,14 +74,14 @@ def validate(val_dataloader, model, criterion, config):
 
         return loss, rendered_image_np, target_image_np
 
-def train(dataset, train_dataloader, val_dataloader, 
+def train(dataset, train_dataloader, 
           model, optimizer, config, save_path):
     """Train the NeRF."""
     # Define the loss function
     criterion = nn.MSELoss()
     
     # Iterate over the epochs
-    for i, batch in enumerate(train_dataloader):
+    for i, batch in enumerate(itertools.cycle(train_dataloader)):
         # Parse B random rays sampled at S points
         # [B, 3], [B, S, 3], [B, S, 3], [B, S]
         target_rgb, pts, view_dirs, z_vals = batch
@@ -137,7 +138,7 @@ def train(dataset, train_dataloader, val_dataloader,
             model.eval()
 
             # Run and log validation
-            val_loss, rendered_img, target_img = validate(val_dataloader, model, criterion, config)
+            val_loss, rendered_img, target_img = validate(dataset, model, criterion, config)
 
             # Log training and validation metrics
             wandb.log({"Learning Rate": lr})
@@ -191,7 +192,7 @@ def main():
         "num_iter": 100000,      # Number of epochs
         "lr": 5e-4,              # Learning rate start
         "lr_final": 5e-5,        # Learning rate finish
-        "batch_size": 1024,      # Batch size (number of rays per iteration)
+        "batch_size": 2048,      # Batch size (number of rays per iteration)
         "N_c": 64,               # Coarse sampling
         "N_f": 128,              # Fine sampling
         "image_w": 128,          # Image weight dim
@@ -203,9 +204,6 @@ def main():
     }, allow_val_change=True)
     config = wandb.config
     
-    # Seed for reproducability
-    seed_everything()
-
     # Initialize the Dataset
     transform = transforms.Compose([
         transforms.Resize((config.image_w, config.image_h)),
@@ -235,7 +233,7 @@ def main():
         print("No existing model...\n")
 
     # Train the model
-    train(dataset, train_dataloader, val_dataloader, 
+    train(dataset, train_dataloader, 
           model, optimizer, config, save_path)
     
     # Finish wandb run
