@@ -135,14 +135,14 @@ def sample_rays_f(rays_o, rays_d, z_vals, Nf):
     R = rays_o.shape[0]
 
     # Compute sample points along each ray
-    rays_o_expanded = rays_o.unsqueeze(1).expand(R, Nf, 3)   # [R, Nf, 3]
-    rays_d_expanded = rays_d.unsqueeze(1).expand(R, Nf, 3)   # [R, Nf, 3]
-    z_vals_expanded = z_vals.unsqueeze(-1)                   # [R, Nf, 1]
-    pts = rays_o_expanded + z_vals_expanded * rays_d_expanded  # [R, Nf, 3]
+    rays_o_expanded = rays_o.unsqueeze(1).expand(R, Nf, 3)    # [R, Nf, 3]
+    rays_d_expanded = rays_d.unsqueeze(1).expand(R, Nf, 3)    # [R, Nf, 3]
+    z_vals_expanded = z_vals.unsqueeze(-1)                    # [R, Nf, 1]
+    pts = rays_o_expanded + z_vals_expanded * rays_d_expanded # [R, Nf, 3]
 
     # Compute view directions
     view_dirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)  # Normalize ray directions
-    view_dirs = view_dirs.unsqueeze(1).expand(R, Nf, 3)      # [R, Nf, 3]
+    view_dirs = view_dirs.unsqueeze(1).expand(R, Nf, 3)       # [R, Nf, 3]
 
     return pts, view_dirs
 
@@ -226,19 +226,19 @@ def volume_rendering(rgb, sigma, z_vals):
     Perform volume rendering to produce RGB, depth, and opacity maps.
     
     Parameters:
-        rgb_sigma (tensor): The output of the NeRF model with shape (batch_size, num_samples, 4).
+        rgb_sigma (tensor): The output of the NeRF model with shape (B, S, 4).
                             The last dimension contains RGB values and the density (sigma).
-        z_vals (tensor): The z values (sample points) with shape (batch_size, num_samples).
+        z_vals (tensor): The z values (sample points) with shape (B, S).
         
     Returns:
-        rgb_map (tensor): The rendered RGB image with shape (batch_size, 3).
+        rgb_map (tensor): The rendered RGB image with shape (B, 3).
     """
     B = rgb.shape[0]
         
     # Calculate distances between adjacent z_vals
     dists = z_vals[..., 1:] - z_vals[..., :-1]
     ones = torch.Tensor([1e10]).expand(dists.shape[0], 1).cuda()
-    dists = torch.cat([dists, ones], dim=-1)  # [B, Nc]
+    dists = torch.cat([dists, ones], dim=-1)  # [B, S]
 
     # Calculate alpha values (opacity) from sigma
     alpha = 1.0 - torch.exp(-sigma * dists)

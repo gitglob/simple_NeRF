@@ -92,17 +92,17 @@ def validate(dataset, model_c, model_f, config):
 
             # Query the fine model
             # [B*(Nc+Nf), 3], [B*(Nc+Nf), 1]
-            rgb_map_cf, sigma_cf = model_f(pts_enc_cf, view_dirs_enc_cf)
+            rgb_cf, sigma_cf = model_f(pts_enc_cf, view_dirs_enc_cf)
 
             # Isolate the sampling dimension again, to perform volume rendering
-            rgb_map_cf = rgb_map_cf.view(B, Nc+Nf, 3)       # [B, Nc+Nf, 3]
+            rgb_cf = rgb_cf.view(B, Nc+Nf, 3)               # [B, Nc+Nf, 3]
             sigma_cf = sigma_cf.squeeze(-1).view(B, Nc+Nf)  # [B, Nc+Nf]
             
             # Convert raw model outputs to RGB pixels and new Z samples for the fine network
             # [B, 3]
             rgb_map_c = volume_rendering(rgb_c, sigma_c, z_vals_c)
             # [B, 3]
-            rgb_map_cf = volume_rendering(rgb_map_cf, sigma_cf, z_vals_cf)
+            rgb_map_cf = volume_rendering(rgb_cf, sigma_cf, z_vals_cf)
             
             # Insert batch results into preallocated tensors
             rendered_image_c[start:end] = rgb_map_c   # [W*H, 3]
@@ -221,7 +221,7 @@ def train(dataset, train_dataloader,
             model_f.eval()
             
             # Run and log validation
-            val_loss, rendered_img_c, rendered_img_f, target_img = validate(dataset, model_c, model_f, config)
+            val_loss, rendered_img_c, rendered_img_cf, target_img = validate(dataset, model_c, model_f, config)
 
             # Log training and validation metrics
             wandb.log({"Learning Rate": lr})
@@ -231,7 +231,7 @@ def train(dataset, train_dataloader,
             wandb.log({
                 "Coarse Rendered Image": wandb.Image(rendered_img_c, 
                         caption=f"Fine Image Iter {i}"),
-                "Fine Rendered Image": wandb.Image(rendered_img_f, 
+                "Fine Rendered Image": wandb.Image(rendered_img_cf, 
                         caption=f"Coarse Image - Iter {i}"),
                 "Target Image": wandb.Image(target_img, 
                         caption=f"Target Image - Iter {i}")
