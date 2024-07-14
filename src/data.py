@@ -3,7 +3,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
-from .utils import sample_rays
 
 
 """
@@ -30,7 +29,7 @@ Example Workflow
 
 class SceneDataset(Dataset):
     def __init__(self, images_dir, poses_bounds_file,
-                 S, W, H,
+                 W, H,
                  focal_length=24e-6, 
                  image_width=1536, 
                  sensor_width=9.8e-6,
@@ -40,7 +39,6 @@ class SceneDataset(Dataset):
         Args:
             images_dir (str): Directory with all the images.
             poses_bounds_file (str): File containing poses and bounds.
-            S (int): Number of samples per ray
             W (int): Image width
             H (int): Image height
             focal_length (float): Focal length of the camera.
@@ -50,7 +48,6 @@ class SceneDataset(Dataset):
         """
         self.W = W
         self.H = H
-        self.S = S
         self.mode = mode
         self.images_dir = images_dir
         self.focal_length_mm = focal_length
@@ -60,68 +57,67 @@ class SceneDataset(Dataset):
         poses_bounds = np.load(poses_bounds_file)
 
         # Extract poses of each camera (position and orientation in space) [R, t]
-        poses = poses_bounds[:, :-5].reshape([-1, 3, 4]) # [N, 3, 4]
+        poses = poses_bounds[:, :-5].reshape([-1, 3, 4]) # [M, 3, 4]
 
         # Extract remaining column
-        self.other = poses_bounds[:, -5:-2]              # [N, 1]
+        self.other = poses_bounds[:, -5:-2]     # [M, 1]
 
         # Extract bounds (near and far clipping planes) for each image
-        bounds = poses_bounds[:, -2:]                    # [N, 2]
+        bounds = poses_bounds[:, -2:]           # [M, 2]
 
         # Get list of image files
         img_files = sorted([os.path.join(images_dir, f) 
                             for f in os.listdir(images_dir) 
                             if f.endswith('.JPG') or f.endswith('.jpg')])
-        N = len(img_files)
-        self.N = N
+        M = len(img_files)
+        self.M = M
 
         # Iterate over all images
-        self.imgs = torch.empty((N, W, H, 3))        # [N, W, H, 3]
-        self.pts = torch.empty((N, W*H, S, 3))       # [N, W*H, S, 3]
-        self.view_dirs = torch.empty((N, W*H, S, 3)) # [N, W*H, S, 3]
-        self.z_vals = torch.empty((N, W*H, S))       # [N, W*H, S]
-        for i in range(N):
-            # Extract image, pose, and bounds
-            pose = poses[i]                                 # [3, 4]
-            bound = bounds[i]                               # [2,]
-            image = Image.open(img_files[i]).convert('RGB') # [3, W, H]
+        self.rays_o = torch.empty((M, W*H, 3))  # [M, W*H, 3]
+        self.rays_d = torch.empty((M, W*H, 3))  # [M, W*H, 3]
+        self.imgs = torch.empty((M, W, H, 3))   # [M, W, H, 3]
+        self.bounds = torch.empty((M, W*H, 2))  # [M, W*H, 2]
+        for i in range(M):
+            # Reshape bounds
+            bound = bounds[i] # [2,]
+            bound = torch.tensor(bound, dtype=torch.float32)
+            self.bounds[i] = bound.unsqueeze(0).repeat(W*H, 1) # [W*H, 2]
+
+            # Extract pose
+            pose = poses[i]   # [3, 4]
+            
+            # Extract Image
+            image = Image.open(img_files[i]).convert('RGB')  # [3, W, H]
 
             # Reshape image
-            self.imgs[i] = transform(image).permute(1, 2, 0)  # [W, H, 3]
+            self.imgs[i] = transform(image).permute(1, 2, 0) # [W, H, 3]
 
             # Extract rays from the image
-            rays_o, rays_d = self.get_rays(W, H, pose)     # [W*H, 3]
+            rays_o, rays_d = self.get_rays(W, H, pose)       # [W*H, 3]
+            self.rays_o[i], self.rays_d[i] = rays_o, rays_d
 
-            # Reshape bounds
-            bound = torch.tensor(bound, dtype=torch.float32)
-            bound = bound.unsqueeze(0).repeat(W*H, 1)    # [W*H, 2]
-
-            # Sample the rays of that image
-            # [W*H, S, 3], [W*H, S], [W*H, S, 3]
-            self.pts[i], self.view_dirs[i], self.z_vals[i] = sample_rays(rays_o, rays_d, bound, S)
- 
     def set_mode(self, mode):
         self.mode = mode
-        N, W, H, S = self.N, self.W, self.H, self.S
+        M, W, H = self.M, self.W, self.H
 
         if mode == "train":
             # Reshape the tensors to be able to get batches of random rays from random images
-            self.imgs = self.imgs.view(N*W*H, 3)              # [N*W*H, 3]
-            self.pts = self.pts.view(N*W*H, S, 3)             # [N*W*H, S, 3]
-            self.view_dirs = self.view_dirs.view(N*W*H, S, 3) # [N*W*H, S, 3]
-            self.z_vals = self.z_vals.view(N*W*H, S)          # [N*W*H, S]
+            self.imgs = self.imgs.view(M*W*H, 3)     # [M*W*H, 3]
+            self.rays_o = self.rays_o.view(M*W*H, 3) # [M*W*H, 3]
+            self.rays_d = self.rays_d.view(M*W*H, 3) # [M*W*H, 3]
+            self.bounds = self.bounds.view(M*W*H, 2) # [M*W*H, 2]
         else:
             # Reshape the tensors to get all the rays from 1 image
-            self.imgs = self.imgs.view(N, W*H, 3)              # [N, W*H, 3]
-            self.pts = self.pts.view(N, W*H, S, 3)             # [N, W*H, S, 3]
-            self.view_dirs = self.view_dirs.view(N, W*H, S, 3) # [N, W*H, S, 3]
-            self.z_vals = self.z_vals.view(N, W*H, S)          # [N, W*H, S]
+            self.imgs = self.imgs.view(M, W*H, 3)     # [M, W*H, 3]
+            self.rays_o = self.rays_o.view(M, W*H, 3) # [M, W*H, 3]
+            self.rays_d = self.rays_d.view(M, W*H, 3) # [M, W*H, 3]
+            self.bounds = self.bounds.view(M, W*H, 2) # [M, W*H, 2]
 
     def __len__(self):
         if self.mode == "train":
-            L = self.N * self.W * self.H
+            L = self.M * self.W * self.H
         else:
-            L = self.N
+            L = self.M
 
         return L
 
@@ -138,12 +134,12 @@ class SceneDataset(Dataset):
                 bounds (np.array): The near and far bounds for this image.
         """
 
-        img = self.imgs[idx]            # [3]    | [W*H, 3]
-        pts = self.pts[idx]             # [S, 3] | [W*H, S, 3]
-        view_dirs = self.view_dirs[idx] # [S, 3] | [W*H, S, 3]
-        z_vals = self.z_vals[idx]       # [S]    | [W*H, S]
+        img = self.imgs[idx]      # [3] | [W*H, 3]
+        rays_o = self.rays_o[idx] # [3] | [W*H, 3]
+        rays_d = self.rays_d[idx] # [3] | [W*H, 3]
+        bounds = self.bounds[idx] # [2] | [W*H, 2]
         
-        return img, pts, view_dirs, z_vals
+        return img, rays_o, rays_d, bounds
 
     def get_rays(self, image_width, image_height, camera_pose):
         """

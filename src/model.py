@@ -7,23 +7,23 @@ class NeRF(nn.Module):
     """
     Neural Radiance Field (NeRF) model for rendering 3D scenes.
     """
-    def __init__(self, num_freqs_pos=6, num_freqs_dir=4, device=None):
+    def __init__(self, fp=6, fd=4, device=None):
         """
         Initialize the NeRF model.
 
         Args:
-            num_freqs_pos (int): Number of frequency bands for positional encoding of spatial coordinates.
-            num_freqs_dir (int): Number of frequency bands for positional encoding of viewing directions.
+            fp (int): Number of frequency bands for positional encoding of spatial coordinates.
+            fd (int): Number of frequency bands for positional encoding of viewing directions.
         """
         super(NeRF, self).__init__()
         self.device = device
         
-        self.num_freqs_pos = num_freqs_pos
-        self.num_freqs_dir = num_freqs_dir
+        self.fp = fp
+        self.fd = fd
                 
         # Add 2 dimensions for sine, cosine and 3 for x,y,z
-        self.input_dim_pos = 3 + num_freqs_pos * 2 * 3
-        self.input_dim_dir = 3 + num_freqs_dir * 2 * 3
+        self.input_dim_pos = 3 + fp * 2 * 3
+        self.input_dim_dir = 3 + fd * 2 * 3
         
         # MLP to process input points
         # Coarse networks
@@ -61,7 +61,7 @@ class NeRF(nn.Module):
             if isinstance(layer, nn.Linear):
                 nn.init.xavier_uniform_(layer.weight)
                 nn.init.zeros_(layer.bias)
-        
+
     def forward(self, x, d):
         """
         Forward pass through the NeRF model.
@@ -101,31 +101,3 @@ class NeRF(nn.Module):
         rgb = F.sigmoid(self.fc12(h))
         
         return rgb, sigma
-
-    def print_status(self):
-        # Collect all gradients
-        total_gradients = []
-        for param in self.parameters():
-            if param.grad is not None:
-                total_gradients.append(param.grad.view(-1))
-        
-        if total_gradients:
-            all_gradients = torch.cat(total_gradients)
-            mean_gradient = all_gradients.mean().item()
-            std_gradient = all_gradients.std().item()
-            min_gradient = all_gradients.min().item()
-            max_gradient = all_gradients.max().item()
-            print(f"Gradients - Mean: {mean_gradient}, Std: {std_gradient}, Min: {min_gradient}, Max: {max_gradient}")
-        
-        # Collect all weights
-        total_weights = []
-        for param in self.parameters():
-            total_weights.append(param.view(-1))
-        
-        if total_weights:
-            all_weights = torch.cat(total_weights)
-            mean_weight = all_weights.mean().item()
-            std_weight = all_weights.std().item()
-            min_weight = all_weights.min().item()
-            max_weight = all_weights.max().item()
-            print(f"Weights - Mean: {mean_weight}, Std: {std_weight}, Min: {min_weight}, Max: {max_weight}")
