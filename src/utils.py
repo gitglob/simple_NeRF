@@ -226,29 +226,35 @@ def volume_rendering(rgb, sigma, z_vals):
     Perform volume rendering to produce RGB, depth, and opacity maps.
     
     Parameters:
-        rgb_sigma (tensor): The output of the NeRF model with shape (B, S, 4).
-                            The last dimension contains RGB values and the density (sigma).
+        rgb (tensor): The output color of the NeRF model with shape (B, S, 3).
+        sigma (tensor): The output density of the NeRF model with shape (B, S, 1).
         z_vals (tensor): The z values (sample points) with shape (B, S).
         
     Returns:
         rgb_map (tensor): The rendered RGB image with shape (B, 3).
     """
-    B = rgb.shape[0]
-        
-    # Calculate distances between adjacent z_vals
-    dists = z_vals[..., 1:] - z_vals[..., :-1]
-    ones = torch.Tensor([1e10]).expand(dists.shape[0], 1).cuda()
-    dists = torch.cat([dists, ones], dim=-1)  # [B, S]
+    # Compute delta (differences between adjacent z values)
+    delta = z_vals[:, 1:] - z_vals[:, :-1]
+    last_delta = torch.tensor([1e10]).expand(z_vals[:, :1].shape).cuda() # Append a large value for the last delta
+    delta = torch.cat((delta, last_delta), dim=1)
 
-    # Calculate alpha values (opacity) from sigma
-    alpha = 1.0 - torch.exp(-sigma * dists)
+    # Compute alpha values (1 - exp(-sigma * delta))
+    alpha = 1.0 - torch.exp(-sigma.squeeze(-1) * delta)
 
-    # Calculate weights
-    ones = torch.ones((B, 1)).cuda()
-    T = torch.cumprod(torch.cat([ones, 1.0 - alpha + 1e-10], dim=-1), dim=-1)[:, :-1]
+    # Compute T values (cumulative product of (1 - alpha) terms)
+    ones = torch.ones_like(alpha[:, :1]).cuda()
+    T = torch.cumprod(torch.cat([ones, 1.0 - alpha + 1e-10], dim=1), dim=1)[:, :-1]
+
+    # Compute weights
     weights = alpha * T
 
-    # Calculate RGB map
-    rgb_map = torch.sum(weights[..., None] * rgb, dim=-2)
+    # Compute the RGB map by summing the weighted colors
+    rgb_map = torch.sum(weights.unsqueeze(-1) * rgb, dim=1)
+
+    # # Compute the depth map by summing the weighted z values
+    # depth_map = torch.sum(weights * z_vals, dim=1)
+
+    # # Compute the opacity map by summing the weights
+    # opacity_map = torch.sum(weights, dim=1)
     
     return rgb_map

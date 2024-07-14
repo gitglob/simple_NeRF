@@ -101,7 +101,6 @@ def validate(dataset, model_c, model_f, config):
             # Convert raw model outputs to RGB pixels and new Z samples for the fine network
             # [B, 3]
             rgb_map_c = volume_rendering(rgb_c, sigma_c, z_vals_c)
-            # [B, 3]
             rgb_map_cf = volume_rendering(rgb_cf, sigma_cf, z_vals_cf)
             
             # Insert batch results into preallocated tensors
@@ -230,9 +229,9 @@ def train(dataset, train_dataloader,
             # Log target and rendered image
             wandb.log({
                 "Coarse Rendered Image": wandb.Image(rendered_img_c, 
-                        caption=f"Fine Image Iter {i}"),
+                        caption=f"Coarse Image Iter {i}"),
                 "Fine Rendered Image": wandb.Image(rendered_img_cf, 
-                        caption=f"Coarse Image - Iter {i}"),
+                        caption=f"Fine Image - Iter {i}"),
                 "Target Image": wandb.Image(target_img, 
                         caption=f"Target Image - Iter {i}")
             })
@@ -267,7 +266,7 @@ def main():
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v1.0.0"
+    run_id = "v1.0.1"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
