@@ -229,10 +229,10 @@ def train(dataset, train_dataloader,
             wandb.log({"Validation Loss": val_loss})
             # Log target and rendered image
             wandb.log({
-                "Rendered Image": wandb.Image(rendered_img_c, 
-                        caption=f"Coarse Rendered Image - Iter {i}"),
-                "Rendered Image": wandb.Image(rendered_img_f, 
-                        caption=f"Fine Rendered Image - Iter {i}"),
+                "Coarse Rendered Image": wandb.Image(rendered_img_c, 
+                        caption=f"Fine Image Iter {i}"),
+                "Fine Rendered Image": wandb.Image(rendered_img_f, 
+                        caption=f"Coarse Image - Iter {i}"),
                 "Target Image": wandb.Image(target_img, 
                         caption=f"Target Image - Iter {i}")
             })
@@ -312,7 +312,7 @@ def main():
     # Load the model if a checkpoint exists
     save_path = "checkpoints/model_" + scene + ".pth"
     if os.path.exists(save_path):
-        model, optimizer = load(model, optimizer, save_path)
+        model_c, model_f, optimizer = load(model_c, model_f, optimizer, save_path)
         print(f"Model and optimizer loaded from {save_path}\n")
     else:
         print("No existing model...\n")
