@@ -95,7 +95,7 @@ def stratified_sampling(rays_o, rays_d, bounds, N_samples=64):
     far = bounds[..., 1].unsqueeze(-1)   # [R, 1]
 
     # Sample depth values
-    z_vals = torch.linspace(0.0, 1.0, S, dtype=torch.float32, device=rays_o.device)  # [S]
+    z_vals = torch.linspace(0.0, 1.0, S, dtype=torch.float32).cuda()  # [S]
     z_vals = z_vals.unsqueeze(0).expand(R, S)   # [R, S]
 
     # Scale depth values to be within near and far
@@ -106,15 +106,15 @@ def stratified_sampling(rays_o, rays_d, bounds, N_samples=64):
     # z_vals = z_vals + perturb  # [R, S]
 
     # Compute sample points along each ray
-    rays_o_expanded = rays_o.unsqueeze(1).expand(R, S, 3)   # [R, S, 3]
-    rays_d_expanded = rays_d.unsqueeze(1).expand(R, S, 3)   # [R, S, 3]
+    rays_o_expanded = rays_o.unsqueeze(1).expand(R, S, 3)      # [R, S, 3]
+    rays_d_expanded = rays_d.unsqueeze(1).expand(R, S, 3)      # [R, S, 3]
     z_vals_expanded = z_vals.unsqueeze(-1)                     # [R, S, 1]
 
     pts = rays_o_expanded + z_vals_expanded * rays_d_expanded  # [R, S, 3]
 
     # Compute view directions
     view_dirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)  # Normalize ray directions
-    view_dirs = view_dirs.unsqueeze(1).expand(R, S, 3)      # [R, S, 3]
+    view_dirs = view_dirs.unsqueeze(1).expand(R, S, 3)         # [R, S, 3]
 
     return pts, view_dirs, z_vals
 
@@ -146,36 +146,10 @@ def sample_rays_f(rays_o, rays_d, z_vals, Nf):
 
     return pts, view_dirs
 
-def hierarchical_sampling(rgb, sigma, z_vals, Nf):
-    """
-    Perform volume rendering to produce RGB, depth, and opacity maps.
-    
-    Parameters:
-        rgb_sigma (tensor): The output of the NeRF model with shape (B, Nc, 4).
-                            The last dimension contains RGB values and the density (sigma).
-        z_vals (tensor): The z values (sample points) with shape (B, Nc).
-        
-    Returns:
-        rgb_map (tensor): The rendered RGB image with shape (B, 3).
-    """
-    B, Nc, _ = rgb.shape
-        
-    # Calculate distances between adjacent z_vals
-    dists = z_vals[..., 1:] - z_vals[..., :-1]                 # [B, Nc-1]
-    ones = torch.Tensor([1e10]).expand(B, 1).cuda()            # [B, 1]
-    dists = torch.cat([dists, ones], dim=-1)                   # [B, Nc]
-
-    # Calculate alpha values (opacity) from sigma
-    alpha = 1.0 - torch.exp(-sigma * dists)                    # [B, Nc]
-
-    # Calculate weights
-    ones = torch.ones((B, 1)).cuda()                           # [B, 1]
-    _ = torch.cat([ones, 1.0 - alpha + 1e-10], dim=-1)         # [B, 1 + Nc]
-    T = torch.cumprod(_, dim=-1)[:, :-1]                       # [B, Nc]
-    weights = alpha * T                                        # [B, Nc]
-
+def sample_fine_z_vals(weights, z_vals, B, Nc, Nf):
+    """Samples Z values for the fine model."""
     # Normalize weights
-    weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-10)
+    weights = weights / (weights.sum(dim=1, keepdim=True) + 1e-10)  # [B, Nc]
 
     # Compute the CDF from the weights
     cdf = torch.cumsum(weights, dim=-1)                        # [B, Nc]
@@ -210,8 +184,8 @@ def hierarchical_sampling(rgb, sigma, z_vals, Nf):
         z_vals_g = torch.gather(_z_vals, 1, inds_z)            # [Nf, 2]
 
         # Calculate the denominator for interpolation, ensuring no division by zero
-        denom = (cdf_g[:, 1] - cdf_g[:, 0])                    # [Nf, 2]
-        denom = torch.where(denom < 1e-5, torch.ones_like(denom), denom)
+        denom = cdf_g[:, 1] - cdf_g[:, 0]                      # [Nf, 2]
+        denom[denom<1e-10] = 1
         
         # Calculate the interpolation factor t
         t = (u[i] - cdf_g[:, 0]) / denom                       # [Nf, 2]
@@ -220,6 +194,43 @@ def hierarchical_sampling(rgb, sigma, z_vals, Nf):
         z_vals_fine[i] = z_vals_g[:, 0] + t * (z_vals_g[:, 1] - z_vals_g[:, 0])
 
     return z_vals_fine
+
+def hierarchical_sampling(rgb, sigma, z_vals, Nf):
+    """
+    Perform volume rendering to produce RGB, depth, and opacity maps.
+    
+    Parameters:
+        rgb (tensor): The output color of the NeRF model with shape (B, Nc, 3).
+        sigma (tensor): The output density of the NeRF model with shape (B, Nc, 1).
+        z_vals (tensor): The z values (sample points) with shape (B, Nc).
+        Nf (int): The number of fine Z coordinates to generate
+        
+    Returns:
+        rgb_map (tensor): The rendered RGB image with shape (B, 3).
+    """
+    B, Nc, _ = rgb.shape
+        
+    # Calculate distances between adjacent z_vals
+    deltas = z_vals[:, 1:] - z_vals[:, :-1]                    # [B, Nc-1]
+    last_delta = 1e10 * torch.ones((B, 1)).cuda()              # [B, 1]
+    deltas = torch.cat([deltas, last_delta], dim=1)            # [B, Nc]
+
+    # Calculate alpha values (opacity) from sigma
+    alpha = 1.0 - torch.exp(-sigma * deltas)                   # [B, Nc]
+    
+    # Calculate weights
+    ones = torch.ones((B, 1)).cuda()                           # [B, 1]
+    _ = torch.cat([ones, 1.0 - alpha + 1e-10], dim=1)          # [B, 1 + Nc]
+    T = torch.cumprod(_, dim=-1)[:, :-1]                       # [B, Nc]
+    weights = alpha * T                                        # [B, Nc]
+
+    # Calculate the Z coordinates for the fine model
+    z_vals_f = sample_fine_z_vals(weights.detach(), z_vals, B, Nc, Nf) # [B, Nf]
+
+    # Compute the RGB map by summing the weighted colors
+    rgb_map = torch.sum(weights.unsqueeze(-1) * rgb, dim=1)            # [B, 3]
+
+    return rgb_map, z_vals_f
 
 def volume_rendering(rgb, sigma, z_vals):
     """
@@ -233,23 +244,26 @@ def volume_rendering(rgb, sigma, z_vals):
     Returns:
         rgb_map (tensor): The rendered RGB image with shape (B, 3).
     """
-    # Compute delta (differences between adjacent z values)
-    delta = z_vals[:, 1:] - z_vals[:, :-1]
-    last_delta = torch.tensor([1e10]).expand(z_vals[:, :1].shape).cuda() # Append a large value for the last delta
-    delta = torch.cat((delta, last_delta), dim=1)
+    B, Nf, _ = rgb.shape
 
-    # Compute alpha values (1 - exp(-sigma * delta))
-    alpha = 1.0 - torch.exp(-sigma.squeeze(-1) * delta)
+    # Compute deltas (differences between adjacent z values)
+    deltas = z_vals[:, 1:] - z_vals[:, :-1]
+    last_delta = 1e10 * torch.ones((B, 1)).cuda()           # [B, 1]
+    deltas = torch.cat((deltas, last_delta), dim=1)         # [B, Nc]
+
+    # Compute alpha values (1 - exp(-sigma * deltas))
+    alpha = 1.0 - torch.exp(-sigma * deltas)                # [B, Nc]
 
     # Compute T values (cumulative product of (1 - alpha) terms)
-    ones = torch.ones_like(alpha[:, :1]).cuda()
-    T = torch.cumprod(torch.cat([ones, 1.0 - alpha + 1e-10], dim=1), dim=1)[:, :-1]
+    ones = torch.ones(B, 1).cuda()                          # [B, 1]
+    _ = torch.cat([ones, 1.0 - alpha + 1e-10], dim=1)       # [B, 1 + Nc]
+    T = torch.cumprod(_, dim=1)[:, :-1]                     # [B, Nc]
 
     # Compute weights
-    weights = alpha * T
+    weights = alpha * T                                     # [B, Nc]
 
     # Compute the RGB map by summing the weighted colors
-    rgb_map = torch.sum(weights.unsqueeze(-1) * rgb, dim=1)
+    rgb_map = torch.sum(weights.unsqueeze(-1) * rgb, dim=1) # [B, 3]
 
     # # Compute the depth map by summing the weighted z values
     # depth_map = torch.sum(weights * z_vals, dim=1)

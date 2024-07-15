@@ -7,7 +7,7 @@ class NeRF(nn.Module):
     """
     Neural Radiance Field (NeRF) model for rendering 3D scenes.
     """
-    def __init__(self, fp=6, fd=4, device=None):
+    def __init__(self, fp=6, fd=4):
         """
         Initialize the NeRF model.
 
@@ -16,7 +16,6 @@ class NeRF(nn.Module):
             fd (int): Number of frequency bands for positional encoding of viewing directions.
         """
         super(NeRF, self).__init__()
-        self.device = device
         
         self.fp = fp
         self.fd = fd

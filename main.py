@@ -71,8 +71,8 @@ def validate(dataset, model_c, model_f, config):
             sigma_c = sigma_c.squeeze(-1).view(B, Nc)  # [B, Nc]
 
             # Perform hierarchical sampling to get the fine Z values
-            z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf) # [B, Nf, 3]
-            z_vals_cf = torch.cat((z_vals_c, z_vals_f), dim=1)             # [B, Nc+Nf, 3]
+            rgb_map_c, z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf) # [B, 3], [B, Nf]
+            z_vals_cf, _ = torch.sort(torch.cat([z_vals_c, z_vals_f], -1), -1)        # [B, Nc+Nf]
 
             # Sample rays for the fine network
             # [B, Nf, 3], [B, Nf, 3]
@@ -100,7 +100,6 @@ def validate(dataset, model_c, model_f, config):
             
             # Convert raw model outputs to RGB pixels and new Z samples for the fine network
             # [B, 3]
-            rgb_map_c = volume_rendering(rgb_c, sigma_c, z_vals_c)
             rgb_map_cf = volume_rendering(rgb_cf, sigma_cf, z_vals_cf)
             
             # Insert batch results into preallocated tensors
@@ -109,14 +108,16 @@ def validate(dataset, model_c, model_f, config):
             target_image[start:end] = b_target_rgb    # [W*H, 3]
         
         # Calculate the validation loss
-        loss = torch.sum((rendered_image_c - target_image) ** 2  + (rendered_image_cf - target_image) ** 2).item()
+        loss_c = torch.sum( (rendered_image_c - target_image) ** 2 )
+        loss_cf = torch.sum( (rendered_image_cf - target_image) ** 2 )
+        loss = torch.sum( loss_c + loss_cf )
 
         # Convert tensors to images
         rendered_image_np_c = tensor2image(rendered_image_c, config.image_w, config.image_h)
         rendered_image_np_f = tensor2image(rendered_image_cf, config.image_w, config.image_h)
         target_image_np = tensor2image(target_image, config.image_w, config.image_h)
 
-        return loss, rendered_image_np_c, rendered_image_np_f, target_image_np
+        return loss_c, loss_cf, rendered_image_np_c, rendered_image_np_f, target_image_np
 
 def train(dataset, train_dataloader, 
           model_c, model_f,
@@ -170,9 +171,8 @@ def train(dataset, train_dataloader,
         sigma_c = sigma_c.squeeze(-1).view(B, Nc)  # [B, Nc]
         
         # Convert raw model outputs to new Z coordinates to sample for the fine network
-        # [B, Nf]
-        z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf=Nf)
-        z_vals_cf = torch.cat((z_vals_c, z_vals_f), dim=1)
+        rgb_map_c, z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf=Nf) # [B, 3], [B, Nf]
+        z_vals_cf, _ = torch.sort(torch.cat([z_vals_c, z_vals_f], -1), -1)           # [B, Nc+Nf]
 
         # Sample rays for the fine network
         # [B, Nf, 3], [B, Nf, 3]
@@ -200,11 +200,12 @@ def train(dataset, train_dataloader,
         
         # Convert raw model outputs to RGB pixels and new Z samples for the fine network
         # [B, 3]
-        rgb_map_c = volume_rendering(rgb_c, sigma_c, z_vals_c)
         rgb_map_cf = volume_rendering(rgb_cf, sigma_cf, z_vals_cf)
 
         # Calculate loss for this batch
-        train_loss = torch.sum( (rgb_map_c - target_rgb) ** 2  + (rgb_map_cf - target_rgb) ** 2 )
+        train_loss_c = torch.sum( (rgb_map_c - target_rgb) ** 2 )
+        train_loss_cf = torch.sum( (rgb_map_cf - target_rgb) ** 2 )
+        train_loss = train_loss_c + train_loss_cf
 
         # Backpropagate to compute the gradients
         train_loss.backward()
@@ -213,19 +214,21 @@ def train(dataset, train_dataloader,
         optimizer.step()
     
         # Log an image every `log_interval` iterations
-        if i % config.log_interval == 0:
+        if i % config.log_interval == 0 and i!=0:
             # Set training mode
             dataset.set_mode("val")
             model_c.eval()
             model_f.eval()
             
             # Run and log validation
-            val_loss, rendered_img_c, rendered_img_cf, target_img = validate(dataset, model_c, model_f, config)
+            val_loss_c, val_loss_cf, rendered_img_c, rendered_img_cf, target_img = validate(dataset, model_c, model_f, config)
 
             # Log training and validation metrics
             wandb.log({"Learning Rate": lr})
-            wandb.log({"Train Loss": train_loss.item()})
-            wandb.log({"Validation Loss": val_loss})
+            wandb.log({"Train Coarse Loss": train_loss_c.item()})
+            wandb.log({"Train Fine Loss": train_loss_cf.item()})
+            wandb.log({"Validation Coarse Loss": val_loss_c.item()})
+            wandb.log({"Validation Fine Loss": val_loss_cf.item()})
             # Log target and rendered image
             wandb.log({
                 "Coarse Rendered Image": wandb.Image(rendered_img_c, 
@@ -238,8 +241,8 @@ def train(dataset, train_dataloader,
 
             # Print the loss and save the model checkpoint
             print(f"\n\t\tIter {i}")
-            print(f"Train Loss: {train_loss.item()}")
-            print(f"Validation Loss: {val_loss}")
+            print(f"Train Loss: {train_loss_c.item()} + {train_loss_cf.item()}")
+            print(f"Validation Loss: {val_loss_c.item()} + {val_loss_cf.item()}")
             save(model_c, model_f, optimizer, save_path)
 
             # Return to training mode
@@ -266,7 +269,7 @@ def main():
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v1.0.1"
+    run_id = "v1.0.2"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
@@ -303,8 +306,8 @@ def main():
     train_dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
 
     # Initialize model and optimizer
-    model_c = NeRF(config.fp, config.fd, device=device).cuda()
-    model_f = NeRF(config.fp, config.fd, device=device).cuda()
+    model_c = NeRF(config.fp, config.fd).cuda()
+    model_f = NeRF(config.fp, config.fd).cuda()
     params = list(model_c.parameters()) + list(model_f.parameters())
     optimizer = torch.optim.Adam(params, lr=config.lr)
 
