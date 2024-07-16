@@ -220,24 +220,30 @@ def train(dataset, train_dataloader,
             model_c.eval()
             model_f.eval()
             
-            # Run and log validation
-            val_loss_c, val_loss_cf, rendered_img_c, rendered_img_cf, target_img = validate(dataset, model_c, model_f, config)
+            # Convert tensors to images
+            train_rendered_img_c = tensor2image(rgb_map_c, 16, 32)
+            train_rendered_img_cf = tensor2image(rgb_map_cf, 16, 32)
+            train_target_img = tensor2image(target_rgb, 16, 32)
 
-            # Log training and validation metrics
+            # Run and log validation
+            val_loss_c, val_loss_cf, val_rendered_img_c, val_rendered_img_cf, val_target_img = validate(dataset, model_c, model_f, config)
+
+            # Log training and validation metrics and rendered images
             wandb.log({"Learning Rate": lr})
+            wandb.log({
+                "Train Coarse Rendered Image": wandb.Image(train_rendered_img_c),
+                "Train Fine Rendered Image": wandb.Image(train_rendered_img_cf),
+                "Train Target Image": wandb.Image(train_target_img)
+            })
             wandb.log({"Train Coarse Loss": train_loss_c.item()})
             wandb.log({"Train Fine Loss": train_loss_cf.item()})
+            wandb.log({
+                "Val Coarse Rendered Image": wandb.Image(val_rendered_img_c),
+                "Val Fine Rendered Image": wandb.Image(val_rendered_img_cf,),
+                "Val Target Image": wandb.Image(val_target_img)
+            })
             wandb.log({"Validation Coarse Loss": val_loss_c.item()})
             wandb.log({"Validation Fine Loss": val_loss_cf.item()})
-            # Log target and rendered image
-            wandb.log({
-                "Coarse Rendered Image": wandb.Image(rendered_img_c, 
-                        caption=f"Coarse Image Iter {i}"),
-                "Fine Rendered Image": wandb.Image(rendered_img_cf, 
-                        caption=f"Fine Image - Iter {i}"),
-                "Target Image": wandb.Image(target_img, 
-                        caption=f"Target Image - Iter {i}")
-            })
 
             # Print the loss and save the model checkpoint
             print(f"\n\t\tIter {i}")
@@ -259,7 +265,6 @@ def main():
     if not torch.cuda.is_available():
         print("CUDA is not available. Exiting...")
         return
-    device = torch.device("cuda")
     
     # Dataset path
     scene = "trex_fc"

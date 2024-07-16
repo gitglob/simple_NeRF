@@ -5,6 +5,7 @@ videos
 data
 checkpoints
 papers
+tmp
 
 wandb
 
