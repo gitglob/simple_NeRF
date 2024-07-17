@@ -76,11 +76,6 @@ Custom scene after 32000 iterations.
       <br>
       <strong>Rendered scene</strong>
     </td>
-    <td>
-      <img src="./resources/c/custom/timelapse.gif" width="300" />
-      <br>
-      <strong>Training</strong>
-    </td>
   </tr>
 </table>
 
