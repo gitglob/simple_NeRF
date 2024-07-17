@@ -52,14 +52,17 @@ Custom scene after 32000 iterations.
 <table>
   <tr>
     <td style="text-align: center;">
-      <img src="resources/c/custom/rendered.png" width="300">
+      <img src="./resources/c/custom/rendered.png" width="300">
       <br>
       <strong>Rendered Image</strong>
     </td>
     <td style="text-align: center;">
-      <img src="resources/c/custom/target.png" width="300">
+      <img src="./resources/c/custom/target.png" width="300">
       <br>
       <strong>Target Image</strong>
+    </td>
+    <td>
+      <img src="./resources/c/custom/loss.png" width="300">
     </td>
   </tr>
 </table>
