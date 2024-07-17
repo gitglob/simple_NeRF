@@ -1,6 +1,7 @@
-# NeRF Project
+# Simple NeRF project
 
 The purpose of this project is to familiarize with and gain some practical experience with NeRFs.
+In this context, I recreated the model and training process from the original NeRF paper [1], and trained it on a custom scene.
 
 I also think I did a really good job with code visibility, comments and modularization, so that everything is kept minimal. If someone is just getting started with NeRFs, it should be pretty easy to follow.
 
@@ -65,14 +66,18 @@ Custom scene after 32000 iterations.
 
 <table>
   <tr>
-    <td><img src="https://example.com/path/to/gif1.gif" alt="GIF 1" width="300" /></td>
-    <td><img src="https://example.com/path/to/gif2.gif" alt="GIF 2" width="300" /></td>
+    <td>
+      <img src="./resources/c/custom/target.gif" width="300" />
+      <br>
+      <strong>Target scene</strong>
+    </td>
+    <td>
+      <img src="./resources/c/custom/rendered.gif" width="300" />
+      <br>
+      <strong>Rendered scene</strong>
+    </td>
   </tr>
 </table>
-
-![custom](https://raw.githubusercontent.com/gitglob/simple_NeRF/main/resources/c/custom/timelapse.gif)
-![custom](https://raw.githubusercontent.com/gitglob/simple_NeRF/main/resources/c/custom/rendered.gif)
-![custom](https://raw.githubusercontent.com/gitglob/simple_NeRF/main/resources/c/custom/target.gif)
 
 ## Trex
 
@@ -89,6 +94,11 @@ Trex (from original NeRF dataset) after approximately 50000 iterations.
       <img src="resources/c/trex/target.png" width="300">
       <br>
       <strong>Target Image</strong>
+    </td>
+    <td style="text-align: center;">
+      <img src="resources/c/trex/timelapse.gif" width="300">
+      <br>
+      <strong>Training</strong>
     </td>
   </tr>
 </table>
@@ -137,3 +147,6 @@ In the "feat/hierarchical_sampling" branch, you can find the coarse-fine hierarc
 </table>
 
 Feel free to open a PR if you manage to solve it.
+
+# Sources
+1. [NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis](https://www.matthewtancik.com/nerf)
