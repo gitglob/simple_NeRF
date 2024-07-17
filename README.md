@@ -65,14 +65,12 @@ Custom scene after 32000 iterations.
 
 <table>
   <tr>
-    <td><img src="https://example.com/path/to/gif1.gif" alt="GIF 1" width="300" /></td>
-    <td><img src="https://example.com/path/to/gif2.gif" alt="GIF 2" width="300" /></td>
+    <td><img src="[rendered](https://github.com/gitglob/simple_NeRF/resources/c/custom/rendered.gif)" alt="GIF 1" width="300" /></td>
+    <td><img src="[target](https://github.com/gitglob/simple_NeRF/resources/c/custom/target.gif)" alt="GIF 2" width="300" /></td>
   </tr>
 </table>
 
-![custom](https://raw.githubusercontent.com/gitglob/simple_NeRF/main/resources/c/custom/timelapse.gif)
-![custom](https://raw.githubusercontent.com/gitglob/simple_NeRF/main/resources/c/custom/rendered.gif)
-![custom](https://raw.githubusercontent.com/gitglob/simple_NeRF/main/resources/c/custom/target.gif)
+![timelapse](https://github.com/gitglob/simple_NeRF/resources/c/custom/timelapse.gif)
 
 ## Trex
 
