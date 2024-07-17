@@ -268,7 +268,7 @@ def main():
     
     # Dataset path
     scene = "trex_fc"
-    dataset_path = os.path.join(os.path.curdir, "data", "NeRF", "nerf_llff_data", "trex")
+    dataset_path = os.path.join(os.path.curdir, "data", "trex")
 
     # Initialize wandb
     project_name = f"simple_nerf-{scene}"
