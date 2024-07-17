@@ -125,9 +125,11 @@ Synthetic ship (from original NeRF dataset) 5000 iterations.
   </tr>
 </table>
 
-# Comments
+# Hierarchical Volume Sampling
 
-In the "feat/hierarchical_sampling" branch, you can find the coarse-fine hierarchical/importance sampling version of the original NeRF, where we use a coarse NeRF, with lower embedding dimension, to do importance sampling for the fine network, which has a higher embedding dimension. However, there is a bug somewhere in the code, which I failed to detect, causing a weird "stripe" effect in the rendered scene. You can see it in the picture below:
+In the "feat/hierarchical_sampling" branch, you can find the coarse-fine hierarchical sampling version of the original NeRF, where we use a coarse network, with lower embedding dimension, to do importance sampling for the fine network, which has a higher embedding dimension.
+
+The results are the followign, after 34000 iterations.
 
 <table>
   <tr>
@@ -149,7 +151,8 @@ In the "feat/hierarchical_sampling" branch, you can find the coarse-fine hierarc
   </tr>
 </table>
 
-Feel free to open a PR if you manage to solve it.
+It seems like the fine network (which takes both the coarse and fine encoded points and view directions as input) performs slightly better, both in terms of loss and reconstruction quality, throughout the entire training.
 
-# Sources
+# References
+
 1. [NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis](https://www.matthewtancik.com/nerf)
