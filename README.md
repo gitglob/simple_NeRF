@@ -1,6 +1,7 @@
-# NeRF Project
+# Simple NeRF project
 
 The purpose of this project is to familiarize with and gain some practical experience with NeRFs.
+In this context, I recreated the model and training process from the original NeRF paper [1], and trained it on a custom scene.
 
 I also think I did a really good job with code visibility, comments and modularization, so that everything is kept minimal. If someone is just getting started with NeRFs, it should be pretty easy to follow.
 
@@ -146,3 +147,6 @@ In the "feat/hierarchical_sampling" branch, you can find the coarse-fine hierarc
 </table>
 
 Feel free to open a PR if you manage to solve it.
+
+# Sources
+1. [NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis](https://www.matthewtancik.com/nerf)
