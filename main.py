@@ -28,6 +28,8 @@ def validate(dataset, model_c, model_f, config):
         Nf = config.Nf
         fp = config.fp
         fd = config.fd
+        Dp = 3 + 3*fp*2
+        Dd = 3 + 3*fd*2
        
         # Get a random image
         random_idx = random.randint(0, len(dataset) - 1)
@@ -71,8 +73,8 @@ def validate(dataset, model_c, model_f, config):
             sigma_c = sigma_c.squeeze(-1).view(B, Nc)  # [B, Nc]
 
             # Perform hierarchical sampling to get the fine Z values
-            rgb_map_c, z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf) # [B, 3], [B, Nf]
-            z_vals_cf, _ = torch.sort(torch.cat([z_vals_c, z_vals_f], -1), -1)        # [B, Nc+Nf]
+            rgb_map_c, z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf)  # [B, 3], [B, Nf]
+            z_vals_cf, z_indices = torch.sort(torch.cat([z_vals_c, z_vals_f], -1), -1) # [B, Nc+Nf]
 
             # Sample rays for the fine network
             # [B, Nf, 3], [B, Nf, 3]
@@ -82,13 +84,19 @@ def validate(dataset, model_c, model_f, config):
             pts_enc_f = batch_encode(pts_f, fp)              # [B, Nf, Dp]
             view_dirs_enc_f = batch_encode(view_dirs_f, fd)  # [B, Nf, Dd]
 
-            # Merge Batch and Sample dimensions
-            pts_enc_f = pts_enc_f.view(B*Nf, -1)              # [B*Nf, Dp]
-            view_dirs_enc_f = view_dirs_enc_f.view(B*Nf, -1)  # [B*Nf, Dd]
-
             # Merge the coarse and fine batch
-            pts_enc_cf = torch.cat((pts_enc_c, pts_enc_f), dim=0)                   # [B*(Nc+Nf), Dp]
-            view_dirs_enc_cf = torch.cat((view_dirs_enc_c, view_dirs_enc_f), dim=0) # [B*(Nc+Nf), Dd]
+            pts_enc_cf = torch.cat((pts_enc_c.view(B, Nc, Dp), pts_enc_f), dim=1)                   # [B, Nc+Nf, Dp]
+            view_dirs_enc_cf = torch.cat((view_dirs_enc_c.view(B, Nc, Dd), view_dirs_enc_f), dim=1) # [B, Nc+Nf, Dd]
+            
+            # Reorder the concatenated encodings according to z_indices
+            pt_indices = z_indices.unsqueeze(-1).expand(B, Nc+Nf, Dp)               # [B, Nc+Nf, Dp]
+            view_dir_indices = z_indices.unsqueeze(-1).expand(B, Nc+Nf, Dd)         # [B, Nc+Nf, Dd]
+            pts_enc_cf = torch.gather(pts_enc_cf, 1, pt_indices)                    # [B, Nc+Nf, Dp]
+            view_dirs_enc_cf = torch.gather(view_dirs_enc_cf, 1, view_dir_indices)  # [B, Nc+Nf, Dd]
+            
+            # Reshape for model input
+            pts_enc_cf = pts_enc_cf.view(B*(Nc+Nf), Dp)              # [B*Nc+Nf, Dp]
+            view_dirs_enc_cf = view_dirs_enc_cf.view(B*(Nc+Nf), Dd)  # [B*Nc+Nf, Dd]
 
             # Query the fine model
             # [B*(Nc+Nf), 3], [B*(Nc+Nf), 1]
@@ -134,6 +142,8 @@ def train(dataset, train_dataloader,
     Nf = config.Nf
     fp = config.fp
     fd = config.fd
+    Dp = 3 + 3*fp*2
+    Dd = 3 + 3*fd*2
 
     # Iterate over the epochs
     for i, batch in enumerate(itertools.cycle(train_dataloader)):
@@ -172,7 +182,7 @@ def train(dataset, train_dataloader,
         
         # Convert raw model outputs to new Z coordinates to sample for the fine network
         rgb_map_c, z_vals_f = hierarchical_sampling(rgb_c, sigma_c, z_vals_c, Nf=Nf) # [B, 3], [B, Nf]
-        z_vals_cf, _ = torch.sort(torch.cat([z_vals_c, z_vals_f], -1), -1)           # [B, Nc+Nf]
+        z_vals_cf, z_indices = torch.sort(torch.cat([z_vals_c, z_vals_f], -1), -1)   # [B, Nc+Nf]
 
         # Sample rays for the fine network
         # [B, Nf, 3], [B, Nf, 3]
@@ -182,13 +192,19 @@ def train(dataset, train_dataloader,
         pts_enc_f = batch_encode(pts_f, fp)              # [B, Nf, Dp]
         view_dirs_enc_f = batch_encode(view_dirs_f, fd)  # [B, Nf, Dd]
 
-        # Merge Batch and Sample dimensions
-        pts_enc_f = pts_enc_f.view(B*Nf, -1)              # [B*Nf, Dp]
-        view_dirs_enc_f = view_dirs_enc_f.view(B*Nf, -1)  # [B*Nf, Dd]
-
         # Merge the coarse and fine batch
-        pts_enc_cf = torch.cat((pts_enc_c, pts_enc_f), dim=0)                   # [B*(Nc+Nf), Dp]
-        view_dirs_enc_cf = torch.cat((view_dirs_enc_c, view_dirs_enc_f), dim=0) # [B*(Nc+Nf), Dd]
+        pts_enc_cf = torch.cat((pts_enc_c.view(B, Nc, Dp), pts_enc_f), dim=1)                   # [B, Nc+Nf, Dp]
+        view_dirs_enc_cf = torch.cat((view_dirs_enc_c.view(B, Nc, Dd), view_dirs_enc_f), dim=1) # [B, Nc+Nf, Dd]
+        
+        # Reorder the concatenated encodings according to z_indices
+        pt_indices = z_indices.unsqueeze(-1).expand(B, Nc+Nf, Dp)               # [B, Nc+Nf, Dp]
+        view_dir_indices = z_indices.unsqueeze(-1).expand(B, Nc+Nf, Dd)         # [B, Nc+Nf, Dd]
+        pts_enc_cf = torch.gather(pts_enc_cf, 1, pt_indices)                    # [B, Nc+Nf, Dp]
+        view_dirs_enc_cf = torch.gather(view_dirs_enc_cf, 1, view_dir_indices)  # [B, Nc+Nf, Dd]
+        
+        # Reshape for model input
+        pts_enc_cf = pts_enc_cf.view(B*(Nc+Nf), Dp)              # [B*Nc+Nf, Dp]
+        view_dirs_enc_cf = view_dirs_enc_cf.view(B*(Nc+Nf), Dd)  # [B*Nc+Nf, Dd]
 
         # Query the model with the sampled points
         # [B*(Nc+Nf), 3], [B*(Nc+Nf), 1]
