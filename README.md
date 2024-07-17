@@ -100,6 +100,11 @@ Trex (from original NeRF dataset) after approximately 50000 iterations.
       <br>
       <strong>Target Image</strong>
     </td>
+    <td style="text-align: center;">
+      <img src="resources/c/trex/timelapse.gif" width="300">
+      <br>
+      <strong>Training</strong>
+    </td>
   </tr>
 </table>
 
