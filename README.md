@@ -70,7 +70,9 @@ Custom scene after 32000 iterations.
   </tr>
 </table>
 
-![timelapse](https://github.com/gitglob/simple_NeRF/resources/c/custom/timelapse.gif)
+![timelapse](https://raw.githubusercontent.com/hashrocket/hr-til/master/app/assets/images/banner.png)
+
+![timelapse](./resources/c/custom/timelapse.gif)
 
 ## Trex
 
