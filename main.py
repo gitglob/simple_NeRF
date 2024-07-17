@@ -230,7 +230,7 @@ def train(dataset, train_dataloader,
         optimizer.step()
     
         # Log an image every `log_interval` iterations
-        if i % config.log_interval == 0 and i!=0:
+        if i % config.log_interval == 0:
             # Set training mode
             dataset.set_mode("val")
             model_c.eval()
@@ -290,7 +290,7 @@ def main():
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v1.0.2"
+    run_id = "v2.0.0"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
