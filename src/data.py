@@ -60,7 +60,7 @@ class SceneDataset(Dataset):
         poses = poses_bounds[:, :-5].reshape([-1, 3, 4]) # [M, 3, 4]
 
         # Extract remaining column
-        self.other = poses_bounds[:, -5:-2]     # [M, 1]
+        self.other = poses_bounds[:, -5:-2]     # [M, 3]
 
         # Extract bounds (near and far clipping planes) for each image
         bounds = poses_bounds[:, -2:]           # [M, 2]

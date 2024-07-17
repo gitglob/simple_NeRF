@@ -9,6 +9,8 @@ tmp
 output
 
 wandb
+output
 
 .venv
+tmp
 **__pycache__

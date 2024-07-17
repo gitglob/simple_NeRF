@@ -1,8 +1,18 @@
 import numpy as np
 import random 
 import matplotlib.pyplot as plt
+from PIL import Image
 import torch
 
+
+def create_gif(image_list, output_filename, duration=200, loop=0):
+    image_list[0].save(
+        output_filename,
+        save_all=True,
+        append_images=image_list[1:],
+        duration=duration,
+        loop=loop
+    )
 
 def normalize(x: torch.Tensor):
     """Normalizes the input tensor."""
@@ -43,6 +53,22 @@ def load(model_c, model_f, optimizer, fpath):
     optimizer.load_state_dict(checkpoint["optimizer"])
 
     return model_c, model_f, optimizer
+
+def tensor2PILimage(x, w, h):
+    """Reshapes a tensor into an image ready to be logged by WandB."""
+    # Reshape tensor to an image shape
+    img = x.view(w, h, 3)
+
+    # Ensure values are in range 0-1
+    img_norm = (img - img.min()) / (img.max() - img.min() + 1e-8)
+
+    # Convert tensors to numpy arrays and then to uint8
+    img_int = (img_norm.detach().cpu().numpy() * 255).astype(np.uint8)
+
+    # Convert np array to image
+    img = Image.fromarray(img_int)
+
+    return img
 
 def tensor2image(x, w, h):
     """Reshapes a tensor into an image ready to be logged by WandB."""
