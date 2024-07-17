@@ -65,8 +65,8 @@ Custom scene after 32000 iterations.
 
 <table>
   <tr>
-    <td><img src="[rendered](./resources/c/custom/rendered.gif)" alt="GIF 1" width="300" /></td>
-    <td><img src="[target](./resources/c/custom/target.gif)" alt="GIF 2" width="300" /></td>
+    <td><img src="./resources/c/custom/rendered.gif" alt="GIF 1" width="300" /></td>
+    <td><img src="./resources/c/custom/target.gif" alt="GIF 2" width="300" /></td>
   </tr>
 </table>
 
