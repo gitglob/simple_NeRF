@@ -7,6 +7,8 @@ checkpoints
 papers
 
 wandb
+output
 
 .venv
+tmp
 **__pycache__

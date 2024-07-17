@@ -63,7 +63,7 @@ class SceneDataset(Dataset):
         poses = poses_bounds[:, :-5].reshape([-1, 3, 4]) # [N, 3, 4]
 
         # Extract remaining column
-        self.other = poses_bounds[:, -5:-2]              # [N, 1]
+        self.other = poses_bounds[:, -5:-2]              # [N, 3]
 
         # Extract bounds (near and far clipping planes) for each image
         bounds = poses_bounds[:, -2:]                    # [N, 2]
@@ -71,7 +71,7 @@ class SceneDataset(Dataset):
         # Get list of image files
         img_files = sorted([os.path.join(images_dir, f) 
                             for f in os.listdir(images_dir) 
-                            if f.endswith('.JPG') or f.endswith('.jpg')])
+                            if f.endswith('.JPG') or f.endswith('.jpg') or f.endswith('.png')])
         N = len(img_files)
         self.N = N
 

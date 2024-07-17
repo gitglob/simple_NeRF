@@ -2,6 +2,7 @@ import os
 import itertools
 import random
 import wandb
+from PIL import Image
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -104,10 +105,6 @@ def train(dataset, train_dataloader,
         pts = pts.view(B*S, -1)              # [B*S, Dp]
         view_dirs = view_dirs.view(B*S, -1)  # [B*S, Dd]
 
-        # Normalize points and view directions
-        # pts = normalize(pts)               # [B*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
-        # view_dirs = normalize(view_dirs)   # [B*S, Dp] (Dp = 3 + 2*3*Fp) ~ [0 ... 1]
-
         # Set optimizer gradient to 0
         optimizer.zero_grad()
 
@@ -128,9 +125,6 @@ def train(dataset, train_dataloader,
 
         # Backpropagate to compute the gradients
         train_loss.backward()
-
-        # Gradient clipping
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=10.0)
         
         # Update the model parameters using the optimizer
         optimizer.step()
@@ -150,11 +144,11 @@ def train(dataset, train_dataloader,
             wandb.log({"Validation Loss": val_loss})
             # Log target and rendered image
             wandb.log({
-                "Rendered Image": wandb.Image(rendered_img, 
-                        caption=f"Rendered Image - Iter {i}"),
-                "Target Image": wandb.Image(target_img, 
-                        caption=f"Target Image - Iter {i}")
+                "Rendered Image": wandb.Image(rendered_img),
+                "Target Image": wandb.Image(target_img)
             })
+            Image.fromarray(rendered_img).save(f"output/rendered/r_{i}.png")
+            Image.fromarray(target_img).save(f"output/target/t_{i}.png")
 
             # Print the loss and save the model checkpoint
             print(f"\n\t\tIter {i}")
@@ -175,17 +169,16 @@ def main():
     if not torch.cuda.is_available():
         print("CUDA is not available. Exiting...")
         return
-    device = torch.device("cuda")
     
     # Dataset path
-    scene = "trex"
-    dataset_path = os.path.join(os.path.curdir, "data", "NeRF", "nerf_llff_data", scene)
+    scene = "object"
+    dataset_path = os.path.join(os.path.curdir, "data", "custom", scene)
 
     # Initialize wandb
     project_name = f"simple_nerf-{scene}"
 
     # Initialize wandb
-    run_id = "v0.0.4"
+    run_id = "v1.0.0"
     wandb.init(project=project_name, 
             entity="gitglob", 
             resume='allow', 
@@ -197,14 +190,12 @@ def main():
         "lr": 5e-4,              # Learning rate start
         "lr_final": 5e-5,        # Learning rate finish
         "batch_size": 2048,      # Batch size (number of rays per iteration)
-        "N_c": 64,               # Coarse sampling
-        "N_f": 128,              # Fine sampling
         "image_w": 128,          # Image weight dim
         "image_h": 128,          # Image height dim
         "num_samples": 64,       # Number of samples across each ray
         "num_freqs_pos": 10,     # Number of position encoding frequencies
         "num_freqs_dir": 4,      # Number of direction encoding frequencies
-        "log_interval": 25       # Logging interval
+        "log_interval": 100      # Logging interval
     }, allow_val_change=True)
     config = wandb.config
     
@@ -224,7 +215,7 @@ def main():
     train_dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True)
 
     # Initialize model and optimizer
-    model = NeRF(config.num_freqs_pos, config.num_freqs_dir, device=device).cuda()
+    model = NeRF(config.num_freqs_pos, config.num_freqs_dir).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 
     # Load the model if a checkpoint exists
