@@ -67,7 +67,7 @@ Custom scene after 32000 iterations.
   <tr>
     <td><img src="./resources/c/custom/target.gif" alt="target" width="300" /></td>
     <td><img src="./resources/c/custom/rendered.gif" alt="rendered" width="300" /></td>
-    <td><img src="./resources/c/custom/timelapse" alt="training" width="300" /></td>
+    <td><img src="./resources/c/custom/timelapse.gif" alt="training" width="300" /></td>
   </tr>
 </table>
 
