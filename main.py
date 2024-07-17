@@ -245,21 +245,19 @@ def train(dataset, train_dataloader,
             val_loss_c, val_loss_cf, val_rendered_img_c, val_rendered_img_cf, val_target_img = validate(dataset, model_c, model_f, config)
 
             # Log training and validation metrics and rendered images
-            wandb.log({"Learning Rate": lr})
             wandb.log({
+                "Learning Rate": lr,
                 "Train Coarse Rendered Image": wandb.Image(train_rendered_img_c),
                 "Train Fine Rendered Image": wandb.Image(train_rendered_img_cf),
-                "Train Target Image": wandb.Image(train_target_img)
-            })
-            wandb.log({"Train Coarse Loss": train_loss_c.item()})
-            wandb.log({"Train Fine Loss": train_loss_cf.item()})
-            wandb.log({
+                "Train Target Image": wandb.Image(train_target_img),
+                "Train Coarse Loss": train_loss_c.item(),
+                "Train Fine Loss": train_loss_cf.item(),
                 "Val Coarse Rendered Image": wandb.Image(val_rendered_img_c),
                 "Val Fine Rendered Image": wandb.Image(val_rendered_img_cf,),
-                "Val Target Image": wandb.Image(val_target_img)
+                "Val Target Image": wandb.Image(val_target_img),
+                "Validation Coarse Loss": val_loss_c.item(),
+                "Validation Fine Loss": val_loss_cf.item()
             })
-            wandb.log({"Validation Coarse Loss": val_loss_c.item()})
-            wandb.log({"Validation Fine Loss": val_loss_cf.item()})
 
             # Print the loss and save the model checkpoint
             print(f"\n\t\tIter {i}")
